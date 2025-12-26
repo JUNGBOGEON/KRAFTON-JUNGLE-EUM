@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Clock, AlignLeft, CheckCircle2 } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Clock, AlignLeft, CheckCircle2, Edit2, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -10,6 +10,7 @@ import { Textarea } from '../ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import { useApp } from '@/providers/AppProvider';
 
 interface Event {
     id: string;
@@ -42,15 +43,28 @@ const MOCK_EVENTS: Event[] = [
 ];
 
 export function CalendarChannel() {
+    const { userProfile } = useApp();
+
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState<Event[]>(MOCK_EVENTS);
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [isAddEventOpen, setIsAddEventOpen] = useState(false);
-    
+
     // New Event State
     const [newEventTitle, setNewEventTitle] = useState('');
     const [newEventTime, setNewEventTime] = useState('10:00');
     const [newEventDesc, setNewEventDesc] = useState('');
+
+    // Edit Event State
+    const [isEditEventOpen, setIsEditEventOpen] = useState(false);
+    const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+    const [editEventTitle, setEditEventTitle] = useState('');
+    const [editEventTime, setEditEventTime] = useState('');
+    const [editEventDesc, setEditEventDesc] = useState('');
+
+    // Delete Confirmation State
+    const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+    const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
 
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday start
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
@@ -68,13 +82,52 @@ export function CalendarChannel() {
             title: newEventTitle,
             time: newEventTime,
             description: newEventDesc,
-            author: { name: "Me" } // Mock current user
+            author: {
+                name: userProfile?.displayName || 'Me',
+                avatar: userProfile?.avatarUrl
+            }
         };
 
         setEvents([...events, newEvent]);
         setIsAddEventOpen(false);
         setNewEventTitle('');
         setNewEventDesc('');
+    };
+
+    // Open edit dialog
+    const handleOpenEdit = (event: Event) => {
+        setEditingEvent(event);
+        setEditEventTitle(event.title);
+        setEditEventTime(event.time);
+        setEditEventDesc(event.description || '');
+        setIsEditEventOpen(true);
+    };
+
+    // Save edited event
+    const handleSaveEdit = () => {
+        if (!editingEvent || !editEventTitle.trim()) return;
+
+        setEvents(prev => prev.map(e =>
+            e.id === editingEvent.id
+                ? { ...e, title: editEventTitle, time: editEventTime, description: editEventDesc }
+                : e
+        ));
+        setIsEditEventOpen(false);
+        setEditingEvent(null);
+    };
+
+    // Open delete confirmation
+    const handleOpenDelete = (eventId: string) => {
+        setDeletingEventId(eventId);
+        setIsDeleteConfirmOpen(true);
+    };
+
+    // Confirm delete
+    const handleConfirmDelete = () => {
+        if (!deletingEventId) return;
+        setEvents(prev => prev.filter(e => e.id !== deletingEventId));
+        setIsDeleteConfirmOpen(false);
+        setDeletingEventId(null);
     };
 
     const selectedDateEvents = events.filter(e => isSameDay(e.date, selectedDate));
@@ -99,7 +152,7 @@ export function CalendarChannel() {
                         </Button>
                     </div>
                 </div>
-                
+
                 <Dialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen}>
                     <DialogTrigger asChild>
                         <Button className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
@@ -116,24 +169,24 @@ export function CalendarChannel() {
                         <div className="space-y-4 py-4">
                             <div className="space-y-2">
                                 <Label>제목</Label>
-                                <Input 
-                                    placeholder="일정 제목을 입력하세요" 
+                                <Input
+                                    placeholder="일정 제목을 입력하세요"
                                     value={newEventTitle}
                                     onChange={(e) => setNewEventTitle(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>시간</Label>
-                                <Input 
-                                    type="time" 
+                                <Input
+                                    type="time"
                                     value={newEventTime}
                                     onChange={(e) => setNewEventTime(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>메모 (선택)</Label>
-                                <Textarea 
-                                    placeholder="간단한 메모를 남겨주세요" 
+                                <Textarea
+                                    placeholder="간단한 메모를 남겨주세요"
                                     value={newEventDesc}
                                     onChange={(e) => setNewEventDesc(e.target.value)}
                                 />
@@ -152,10 +205,10 @@ export function CalendarChannel() {
                 {weekDays.map((day, i) => {
                     const isSelected = isSameDay(day, selectedDate);
                     const dayEvents = events.filter(e => isSameDay(e.date, day));
-                    
+
                     return (
-                        <div 
-                            key={i} 
+                        <div
+                            key={i}
                             onClick={() => setSelectedDate(day)}
                             className={`
                                 min-h-[120px] border-r last:border-r-0 p-3 cursor-pointer transition-colors hover:bg-slate-50 relative
@@ -174,7 +227,7 @@ export function CalendarChannel() {
                                     {format(day, 'd')}
                                 </div>
                             </div>
-                            
+
                             <div className="space-y-1">
                                 {dayEvents.map(event => (
                                     <div key={event.id} className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded truncate font-medium">
@@ -203,7 +256,7 @@ export function CalendarChannel() {
                     ) : (
                         <div className="space-y-3">
                             {selectedDateEvents.map(event => (
-                                <Card key={event.id} className="hover:shadow-md transition-shadow">
+                                <Card key={event.id} className="hover:shadow-md transition-shadow group">
                                     <CardContent className="p-4 flex gap-4 items-start">
                                         <div className="w-16 shrink-0 pt-1">
                                             <span className="text-lg font-bold text-slate-700 block leading-none">{event.time}</span>
@@ -212,9 +265,32 @@ export function CalendarChannel() {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-start justify-between">
                                                 <h4 className="font-bold text-slate-900 text-lg mb-1">{event.title}</h4>
-                                                <Avatar className="w-6 h-6">
-                                                    <AvatarFallback>{event.author.name[0]}</AvatarFallback>
-                                                </Avatar>
+                                                <div className="flex items-center gap-1">
+                                                    {/* Edit Button */}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="w-7 h-7 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-600"
+                                                        onClick={() => handleOpenEdit(event)}
+                                                    >
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </Button>
+                                                    {/* Delete Button */}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="w-7 h-7 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-600"
+                                                        onClick={() => handleOpenDelete(event.id)}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                    <Avatar className="w-6 h-6">
+                                                        {event.author.avatar ? (
+                                                            <AvatarImage src={event.author.avatar} />
+                                                        ) : null}
+                                                        <AvatarFallback>{event.author.name[0]}</AvatarFallback>
+                                                    </Avatar>
+                                                </div>
                                             </div>
                                             {event.description && (
                                                 <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-600 mt-2 flex gap-2">
@@ -230,6 +306,64 @@ export function CalendarChannel() {
                     )}
                 </ScrollArea>
             </div>
+
+            {/* Edit Event Dialog */}
+            <Dialog open={isEditEventOpen} onOpenChange={setIsEditEventOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>일정 수정</DialogTitle>
+                        <DialogDescription>
+                            일정 정보를 수정합니다.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label>제목</Label>
+                            <Input
+                                placeholder="일정 제목을 입력하세요"
+                                value={editEventTitle}
+                                onChange={(e) => setEditEventTitle(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>시간</Label>
+                            <Input
+                                type="time"
+                                value={editEventTime}
+                                onChange={(e) => setEditEventTime(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>메모 (선택)</Label>
+                            <Textarea
+                                placeholder="간단한 메모를 남겨주세요"
+                                value={editEventDesc}
+                                onChange={(e) => setEditEventDesc(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsEditEventOpen(false)}>취소</Button>
+                        <Button onClick={handleSaveEdit}>저장</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>일정 삭제</DialogTitle>
+                        <DialogDescription>
+                            이 일정을 삭제하시겠습니까? 삭제된 일정은 복구할 수 없습니다.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsDeleteConfirmOpen(false)}>취소</Button>
+                        <Button variant="destructive" onClick={handleConfirmDelete}>삭제</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
