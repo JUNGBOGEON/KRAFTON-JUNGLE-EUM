@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '../ui/badge';
-import { 
-    Mic, MicOff, Video, VideoOff, PhoneOff, 
-    MoreVertical, Settings, Volume2, VolumeX, 
+import {
+    Mic, MicOff, Video, VideoOff, PhoneOff,
+    MoreVertical, Settings, Volume2, VolumeX,
     Layout, Grid, Monitor, Languages, Hand, ScreenShare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -50,7 +50,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
 
     // Simulation: AI Text Stream
     const [activeSubtitle, setActiveSubtitle] = useState<{ speakerId: string, text: string } | null>(null);
-    
+
     // Simulate active speaker changes and subtitles
     useEffect(() => {
         // Mock subtitle sequence
@@ -64,11 +64,11 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
         let index = 0;
         const interval = setInterval(() => {
             const script = MOCK_SCRIPT[index % MOCK_SCRIPT.length];
-            
+
             // 1. Set Active Speaker
             setActiveSpeakerId(script.id);
             setAiProcessing(true);
-            
+
             // 2. Stream Text Effect
             setActiveSubtitle({ speakerId: script.id, text: script.text });
 
@@ -86,11 +86,11 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
 
     return (
         <div className="flex-1 relative bg-slate-950 flex flex-col overflow-hidden text-slate-200 font-sans">
-            
+
             {/* --- 1. Top Control Bar (View Switcher) --- */}
             <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex gap-2 p-1 bg-slate-900/90 backdrop-blur rounded-full border border-slate-700 shadow-2xl">
-                <Button 
-                    size="sm" 
+                <Button
+                    size="sm"
                     variant="ghost"
                     className={cn(
                         "rounded-full px-4 transition-all",
@@ -102,8 +102,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                     Speaker View
                 </Button>
                 <div className="w-px bg-slate-700 my-1" />
-                <Button 
-                    size="sm" 
+                <Button
+                    size="sm"
                     variant="ghost"
                     className={cn(
                         "rounded-full px-4 transition-all",
@@ -118,10 +118,10 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
 
             {/* --- 2. Main Video Area --- */}
             <div className="flex-1 flex p-4 gap-4 overflow-hidden">
-                
+
                 {/* Whiteboard / Screen Share Mode Override */}
                 {isWhiteboardOpen || isScreenSharing ? (
-                     <div className="flex-1 relative bg-white rounded-2xl overflow-hidden shadow-2xl flex">
+                    <div className="flex-1 relative bg-white rounded-2xl overflow-hidden shadow-2xl flex">
                         <div className="flex-1 relative flex items-center justify-center bg-slate-900">
                             {isWhiteboardOpen ? (
                                 <MiroWhiteboard isEmbedded onClose={() => setIsWhiteboardOpen(false)} />
@@ -130,8 +130,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                     <Monitor className="w-20 h-20 text-indigo-500 mx-auto mb-4 animate-pulse" />
                                     <h3 className="text-2xl font-bold text-white mb-2">Screen Sharing Active</h3>
                                     <p className="text-slate-400">You are sharing your screen with participants.</p>
-                                    <Button 
-                                        variant="destructive" 
+                                    <Button
+                                        variant="destructive"
                                         className="mt-6"
                                         onClick={() => setIsScreenSharing(false)}
                                     >
@@ -157,7 +157,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                 </div>
                             ))}
                         </div>
-                     </div>
+                    </div>
                 ) : (
                     <>
                         {/* === MODE A: SPEAKER VIEW (Focus on Presentation) === */}
@@ -167,8 +167,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                 <div className="flex-1 bg-slate-900 rounded-2xl border border-slate-800 relative overflow-hidden shadow-2xl group">
                                     {/* Active Speaker Video */}
                                     <div className="absolute inset-0">
-                                        <img 
-                                            src={PARTICIPANTS.find(p => p.id === activeSpeakerId)?.avatar} 
+                                        <img
+                                            src={PARTICIPANTS.find(p => p.id === activeSpeakerId)?.avatar}
                                             className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-1000"
                                             alt="Active Speaker"
                                         />
@@ -195,7 +195,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                     {/* AI Subtitle Overlay (Speaker View: Floating Caption) */}
                                     {activeSubtitle && activeSubtitle.speakerId === activeSpeakerId && (
                                         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-3xl px-8 pointer-events-none">
-                                            <motion.div 
+                                            <motion.div
                                                 initial={{ opacity: 0, y: 10 }}
                                                 animate={{ opacity: 1, y: 0 }}
                                                 key={activeSubtitle.text}
@@ -206,7 +206,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                                     <span className="text-[10px] uppercase tracking-widest text-white font-bold">Live Translation (KO → EN)</span>
                                                 </div>
                                                 <p className="text-xl md:text-2xl text-white font-medium leading-relaxed drop-shadow-md">
-                                                    "{activeSubtitle.text}"
+                                                    &quot;{activeSubtitle.text}&quot;
                                                 </p>
                                             </motion.div>
                                         </div>
@@ -216,8 +216,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                 {/* Thumbnail Strip (Others) */}
                                 <div className="h-32 flex gap-4 overflow-x-auto pb-2 px-2 snap-x">
                                     {PARTICIPANTS.filter(p => p.id !== activeSpeakerId).map(p => (
-                                        <div 
-                                            key={p.id} 
+                                        <div
+                                            key={p.id}
                                             onClick={() => setActiveSpeakerId(p.id)}
                                             className="w-48 bg-slate-800 rounded-xl overflow-hidden border border-slate-700 relative shrink-0 cursor-pointer hover:ring-2 ring-indigo-500 transition-all snap-start group"
                                         >
@@ -245,8 +245,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                         {viewMode === 'listener' && (
                             <div className="flex-1 w-full max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4 auto-rows-fr content-center">
                                 {PARTICIPANTS.map(p => (
-                                    <div 
-                                        key={p.id} 
+                                    <div
+                                        key={p.id}
                                         className={cn(
                                             "relative rounded-2xl overflow-hidden bg-slate-800 border transition-all duration-300 group",
                                             p.isSpeaking ? "border-green-500 ring-4 ring-green-500/20 shadow-xl z-10 scale-[1.02]" : "border-slate-700 hover:border-slate-600"
@@ -254,7 +254,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                     >
                                         {/* Video Feed Placeholder */}
                                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-                                             <Avatar className="w-24 h-24 md:w-32 md:h-32 shadow-2xl">
+                                            <Avatar className="w-24 h-24 md:w-32 md:h-32 shadow-2xl">
                                                 <AvatarImage src={p.avatar} />
                                                 <AvatarFallback>{p.name[0]}</AvatarFallback>
                                             </Avatar>
@@ -275,7 +275,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
 
                                         {/* AI Subtitle Overlay (Listener View: Tile Embedded) */}
                                         {activeSubtitle && activeSubtitle.speakerId === p.id && (
-                                            <motion.div 
+                                            <motion.div
                                                 initial={{ opacity: 0, scale: 0.95, y: 5 }}
                                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                                 key={activeSubtitle.text}
@@ -284,7 +284,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                                 <div className="bg-slate-900/90 backdrop-blur border border-slate-700 p-3 rounded-lg shadow-xl relative">
                                                     {/* Speech Bubble Arrow */}
                                                     <div className="absolute -bottom-1.5 left-6 w-3 h-3 bg-slate-900 border-r border-b border-slate-700 rotate-45 transform" />
-                                                    
+
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <Languages className="w-3 h-3 text-indigo-400" />
                                                         <span className="text-[10px] text-indigo-300 font-bold uppercase">Translation</span>
@@ -299,8 +299,8 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                                         {/* Active Speaker Visualizer Overlay */}
                                         {p.isSpeaking && (
                                             <div className="absolute top-4 right-4 flex gap-1 h-4 items-end">
-                                                {[1,2,3].map(i => (
-                                                    <motion.div 
+                                                {[1, 2, 3].map(i => (
+                                                    <motion.div
                                                         key={i}
                                                         animate={{ height: [4, 16, 4] }}
                                                         transition={{ repeat: Infinity, duration: 0.6, delay: i * 0.1 }}
@@ -327,24 +327,24 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                 </div>
 
                 <div className="flex items-center gap-3 justify-center w-1/3">
-                    <Button 
-                        variant={isMyMicOn ? "default" : "destructive"} 
-                        size="icon" 
+                    <Button
+                        variant={isMyMicOn ? "default" : "destructive"}
+                        size="icon"
                         className="rounded-full w-12 h-12"
                         onClick={() => setIsMyMicOn(!isMyMicOn)}
                     >
                         {isMyMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
                     </Button>
-                    <Button 
-                        variant={isMyVideoOn ? "secondary" : "destructive"} 
-                        size="icon" 
+                    <Button
+                        variant={isMyVideoOn ? "secondary" : "destructive"}
+                        size="icon"
                         className="rounded-full w-12 h-12"
                         onClick={() => setIsMyVideoOn(!isMyVideoOn)}
                         title={isMyVideoOn ? "Turn Off Camera (Voice Only)" : "Turn On Camera"}
                     >
                         {isMyVideoOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
                     </Button>
-                    <Button 
+                    <Button
                         variant={isScreenSharing ? "default" : "secondary"}
                         size="icon"
                         className={cn("rounded-full w-12 h-12", isScreenSharing && "bg-green-600 hover:bg-green-700")}
@@ -356,7 +356,7 @@ export function VideoConference({ onLeave, toggleChat, isChatOpen }: VideoConfer
                     >
                         <ScreenShare className="h-5 w-5" />
                     </Button>
-                    <Button 
+                    <Button
                         variant={isWhiteboardOpen ? "default" : "secondary"}
                         className={cn("rounded-full h-12 px-6 gap-2", isWhiteboardOpen && "bg-indigo-600 hover:bg-indigo-700")}
                         onClick={() => {

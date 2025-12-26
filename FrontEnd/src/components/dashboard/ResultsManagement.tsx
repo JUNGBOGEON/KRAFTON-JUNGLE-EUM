@@ -8,12 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Alert, AlertDescription } from '../ui/alert';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { 
-  Upload, 
-  Download, 
-  Plus, 
-  Trash2, 
-  Save, 
+import {
+  Upload,
+  Download,
+  Plus,
+  Trash2,
+  Save,
   FileText,
   AlertCircle,
   CheckCircle,
@@ -66,7 +66,7 @@ export function ResultsManagement() {
   const subjects = ['Mathematics', 'English Language', 'Basic Science', 'Social Studies', 'Civic Education', 'Computer Science', 'Creative Arts', 'Physical Education'];
   const terms = ['First Term', 'Second Term', 'Third Term'];
   const sessions = ['2023/2024', '2024/2025'];
-  
+
   // Mock students for Primary 4A
   const students = [
     { id: 'P4A001', name: 'Adebayo Tunde', class: 'Primary 4A' },
@@ -85,14 +85,14 @@ export function ResultsManagement() {
   // Initialize student scores when student is selected
   const initializeStudentScores = (studentId: string) => {
     if (!studentId) return;
-    
+
     const initialScores = subjects.map(subject => ({
       subject,
       score: '',
       grade: '',
       remark: ''
     }));
-    
+
     setStudentScores(initialScores);
     setTeacherComment('');
     setShowResultPreview(false);
@@ -138,7 +138,7 @@ export function ResultsManagement() {
     const validScores = studentScores.filter(s => s.score && !isNaN(parseInt(s.score)));
     const totalScore = validScores.reduce((sum, s) => sum + parseInt(s.score), 0);
     const averageScore = validScores.length > 0 ? totalScore / validScores.length : 0;
-    
+
     return {
       totalScore,
       averageScore: Math.round(averageScore * 100) / 100,
@@ -166,7 +166,7 @@ export function ResultsManagement() {
   const generateResultPreview = () => {
     const selectedStudentData = students.find(s => s.id === selectedStudent);
     const summary = calculateStudentSummary();
-    
+
     return {
       studentId: selectedStudent,
       studentName: selectedStudentData?.name || '',
@@ -196,9 +196,9 @@ export function ResultsManagement() {
 
   const handleCsvUpload = async () => {
     if (!csvFile || !selectedClass || !selectedSubject) return;
-    
+
     setUploadStatus('uploading');
-    
+
     setTimeout(() => {
       setUploadStatus('success');
       setCsvFile(null);
@@ -207,12 +207,12 @@ export function ResultsManagement() {
 
   // Manual entry logic (existing)
   const addManualResult = () => {
-    setManualResults([...manualResults, { 
-      id: Date.now(), 
-      studentId: '', 
-      studentName: '', 
-      score: '', 
-      grade: '' 
+    setManualResults([...manualResults, {
+      id: Date.now(),
+      studentId: '',
+      studentName: '',
+      score: '',
+      grade: ''
     }]);
   };
 
@@ -221,7 +221,7 @@ export function ResultsManagement() {
   };
 
   const updateManualResult = (id: number, field: string, value: string) => {
-    setManualResults(manualResults.map(result => 
+    setManualResults(manualResults.map(result =>
       result.id === id ? { ...result, [field]: value } : result
     ));
   };
@@ -233,7 +233,7 @@ export function ResultsManagement() {
         <p className="text-gray-600 mt-1">Upload student results by class and subject</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'csv' | 'manual' | 'student')}>
+      <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value as 'csv' | 'manual' | 'student')}>
         <TabsList>
           <TabsTrigger value="csv">CSV Upload</TabsTrigger>
           <TabsTrigger value="manual">Manual Entry</TabsTrigger>
@@ -454,7 +454,7 @@ export function ResultsManagement() {
                   <Plus className="w-4 h-4" />
                   Add Student
                 </Button>
-                <Button 
+                <Button
                   className="flex items-center gap-2"
                   disabled={!selectedClass || !selectedSubject}
                 >
@@ -474,16 +474,16 @@ export function ResultsManagement() {
                 Individual Student Results
               </CardTitle>
               <CardDescription>
-                Input complete results for a specific student across all subjects. Perfect for class teachers managing their students' comprehensive results.
+                Input complete results for a specific student across all subjects. Perfect for class teachers managing their students&apos; comprehensive results.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <Label htmlFor="studentClass">Select Class</Label>
-                  <Select 
-                    value={selectedClass} 
-                    onValueChange={(value) => {
+                  <Select
+                    value={selectedClass}
+                    onValueChange={(value: string) => {
                       setSelectedClass(value);
                       setSelectedStudent('');
                       setStudentScores([]);
@@ -501,9 +501,9 @@ export function ResultsManagement() {
                 </div>
                 <div>
                   <Label htmlFor="student">Select Student</Label>
-                  <Select 
-                    value={selectedStudent} 
-                    onValueChange={(value) => {
+                  <Select
+                    value={selectedStudent}
+                    onValueChange={(value: string) => {
                       setSelectedStudent(value);
                       initializeStudentScores(value);
                     }}
@@ -577,7 +577,7 @@ export function ResultsManagement() {
                               />
                             </TableCell>
                             <TableCell>
-                              <Badge 
+                              <Badge
                                 variant={score.score && parseInt(score.score) >= 50 ? 'default' : 'destructive'}
                                 className="w-8 justify-center"
                               >
@@ -594,7 +594,7 @@ export function ResultsManagement() {
                   </div>
 
                   <div>
-                    <Label htmlFor="teacherComment">Teacher's Comment</Label>
+                    <Label htmlFor="teacherComment">Teacher&apos;s Comment</Label>
                     <Input
                       id="teacherComment"
                       value={teacherComment}
@@ -624,7 +624,7 @@ export function ResultsManagement() {
                   )}
 
                   <div className="flex gap-2">
-                    <Button 
+                    <Button
                       onClick={handleSaveStudentResult}
                       className="flex items-center gap-2"
                       disabled={!selectedTerm || !selectedSession || !studentScores.some(s => s.score)}
@@ -632,8 +632,8 @@ export function ResultsManagement() {
                       <Save className="w-4 h-4" />
                       Save Student Result
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       onClick={() => setShowResultPreview(true)}
                       className="flex items-center gap-2"
                       disabled={!studentScores.some(s => s.score)}
@@ -676,7 +676,7 @@ export function ResultsManagement() {
                         <h3 className="font-bold text-lg">STUDENT RESULT CARD</h3>
                         <p className="text-sm text-gray-600">{preview.session} Academic Session - {preview.term}</p>
                       </div>
-                      
+
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div><strong>Name:</strong> {preview.studentName}</div>
                         <div><strong>Student ID:</strong> {preview.studentId}</div>
@@ -718,8 +718,8 @@ export function ResultsManagement() {
                       </div>
 
                       <div className="space-y-2 text-sm">
-                        <div><strong>Class Teacher's Comment:</strong> {preview.teacherComment || 'No comment provided'}</div>
-                        <div><strong>Principal's Comment:</strong> {preview.principalComment}</div>
+                        <div><strong>Class Teacher&apos;s Comment:</strong> {preview.teacherComment || 'No comment provided'}</div>
+                        <div><strong>Principal&apos;s Comment:</strong> {preview.principalComment}</div>
                       </div>
                     </div>
                   );

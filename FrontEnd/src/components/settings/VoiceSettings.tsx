@@ -50,13 +50,13 @@ export function VoiceSettings({ onBack }: VoiceSettingsProps) {
     return (
         <div className="p-8 max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4">
             <Button variant="ghost" onClick={onBack} className="mb-4">← 돌아가기</Button>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {/* Left: Options */}
                 <div className="md:col-span-1 space-y-4">
                     <h2 className="text-xl font-bold mb-4">AI 보이스 프로필</h2>
-                    
-                    <div 
+
+                    <div
                         className={`p-4 border rounded-xl cursor-pointer transition-all ${voiceType === 'clone' ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' : 'hover:bg-slate-50'}`}
                         onClick={() => setVoiceType('clone')}
                     >
@@ -71,11 +71,11 @@ export function VoiceSettings({ onBack }: VoiceSettingsProps) {
                         </p>
                     </div>
 
-                    <div 
+                    <div
                         className={`p-4 border rounded-xl cursor-pointer transition-all ${voiceType === 'preset' ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' : 'hover:bg-slate-50'}`}
                         onClick={() => setVoiceType('preset')}
                     >
-                         <div className="flex items-center gap-3 mb-2">
+                        <div className="flex items-center gap-3 mb-2">
                             <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
                                 <Volume2 className="h-5 w-5" />
                             </div>
@@ -97,19 +97,19 @@ export function VoiceSettings({ onBack }: VoiceSettingsProps) {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col items-center justify-center space-y-8 py-8">
-                            
+
                             {/* Script */}
                             <div className="bg-slate-100 p-6 rounded-2xl text-center max-w-md">
                                 <p className="text-lg font-medium text-slate-800 break-keep">
-                                    "안녕하세요, 만나서 반갑습니다. 오늘 회의에서는 지난 분기 성과와 다음 분기 목표에 대해 논의하고자 합니다."
+                                    &quot;안녕하세요, 만나서 반갑습니다. 오늘 회의에서는 지난 분기 성과와 다음 분기 목표에 대해 논의하고자 합니다.&quot;
                                 </p>
                             </div>
 
                             {/* Interaction Area */}
                             <div className="w-full max-w-xs flex flex-col items-center gap-4">
                                 {step === 'initial' && (
-                                    <Button 
-                                        size="lg" 
+                                    <Button
+                                        size="lg"
                                         className="rounded-full w-16 h-16 bg-red-500 hover:bg-red-600 shadow-xl"
                                         onClick={startRecording}
                                     >
@@ -148,14 +148,14 @@ export function VoiceSettings({ onBack }: VoiceSettingsProps) {
                                             <CheckCircle2 className="h-5 w-5" />
                                             <span>분석 완료!</span>
                                         </div>
-                                        
+
                                         <div className="space-y-3 pt-4 border-t">
                                             <div className="flex items-center justify-between px-2">
                                                 <span className="text-sm font-medium text-slate-600 flex items-center gap-2">
                                                     <Globe className="h-4 w-4" /> 영어로 변환된 내 목소리
                                                 </span>
                                             </div>
-                                            <Button 
+                                            <Button
                                                 className={`w-full h-12 text-lg gap-2 ${isPlaying ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                                                 onClick={togglePreview}
                                             >
