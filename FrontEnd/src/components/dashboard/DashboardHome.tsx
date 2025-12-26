@@ -1,9 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { 
-  BookOpen, 
-  Users, 
+import {
+  BookOpen,
+  Users,
   Upload,
   ClipboardList,
   Calendar,
@@ -31,76 +31,76 @@ export function DashboardHome({ teacherName }: DashboardHomeProps) {
   };
 
   const teacherClasses = [
-    { 
-      name: 'Primary 4A', 
-      subject: 'Mathematics', 
-      students: 32, 
+    {
+      name: 'Primary 4A',
+      subject: 'Mathematics',
+      students: 32,
       nextClass: '2023-12-15 09:00',
       recentActivity: 'Uploaded Chapter 5 exercises'
     },
-    { 
-      name: 'Primary 4B', 
-      subject: 'Mathematics', 
-      students: 28, 
+    {
+      name: 'Primary 4B',
+      subject: 'Mathematics',
+      students: 28,
       nextClass: '2023-12-15 10:30',
       recentActivity: 'Created CBT test for fractions'
     },
-    { 
-      name: 'Primary 5A', 
-      subject: 'Mathematics', 
-      students: 35, 
+    {
+      name: 'Primary 5A',
+      subject: 'Mathematics',
+      students: 35,
       nextClass: '2023-12-15 11:30',
       recentActivity: 'Uploaded homework results'
     },
-    { 
-      name: 'Primary 5B', 
-      subject: 'Mathematics', 
-      students: 31, 
+    {
+      name: 'Primary 5B',
+      subject: 'Mathematics',
+      students: 31,
       nextClass: '2023-12-15 14:00',
       recentActivity: 'Assigned continuous assessment'
     }
   ];
 
   const recentActivities = [
-    { 
-      type: 'resource_upload', 
-      title: 'Uploaded "Quadratic Equations - Past Questions"', 
+    {
+      type: 'resource_upload',
+      title: 'Uploaded "Quadratic Equations - Past Questions"',
       time: '2 hours ago',
       class: 'Primary 5A'
     },
-    { 
-      type: 'cbt_created', 
-      title: 'Created CBT test "Fractions and Decimals"', 
+    {
+      type: 'cbt_created',
+      title: 'Created CBT test "Fractions and Decimals"',
       time: '4 hours ago',
       class: 'Primary 4B'
     },
-    { 
-      type: 'results_uploaded', 
-      title: 'Uploaded results for Mathematics test', 
+    {
+      type: 'results_uploaded',
+      title: 'Uploaded results for Mathematics test',
       time: '1 day ago',
       class: 'Primary 4A'
     },
-    { 
-      type: 'assessment_assigned', 
-      title: 'Assigned continuous assessment', 
+    {
+      type: 'assessment_assigned',
+      title: 'Assigned continuous assessment',
       time: '2 days ago',
       class: 'Primary 5B'
     }
   ];
 
   const pendingTasks = [
-    { 
-      task: 'Review and approve CBT test for Primary 4A', 
+    {
+      task: 'Review and approve CBT test for Primary 4A',
       priority: 'high',
       dueDate: '2023-12-15'
     },
-    { 
-      task: 'Upload results for Primary 5A Mathematics test', 
+    {
+      task: 'Upload results for Primary 5A Mathematics test',
       priority: 'medium',
       dueDate: '2023-12-16'
     },
-    { 
-      task: 'Create continuous assessment for Primary 4B', 
+    {
+      task: 'Create continuous assessment for Primary 4B',
       priority: 'medium',
       dueDate: '2023-12-17'
     }
@@ -143,7 +143,7 @@ export function DashboardHome({ teacherName }: DashboardHomeProps) {
       {/* Welcome Header */}
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Welcome back, {teacherName}!</h1>
-        <p className="text-gray-600 mt-1">Here's your teaching overview and recent activities.</p>
+        <p className="text-gray-600 mt-1">Here&apos;s your teaching overview and recent activities.</p>
       </div>
 
       {/* Stats Cards */}
@@ -213,7 +213,7 @@ export function DashboardHome({ teacherName }: DashboardHomeProps) {
               <BookOpen className="w-5 h-5" />
               Your Classes
             </CardTitle>
-            <p className="text-sm text-gray-600">Classes you're currently teaching</p>
+            <p className="text-sm text-gray-600">Classes you&apos;re currently teaching</p>
           </CardHeader>
           <CardContent className="space-y-4">
             {teacherClasses.map((classItem, index) => (
@@ -333,7 +333,7 @@ export function DashboardHome({ teacherName }: DashboardHomeProps) {
             <TrendingUp className="w-5 h-5" />
             Your Teaching Resources
           </CardTitle>
-          <p className="text-sm text-gray-600">Overview of resources you've uploaded</p>
+          <p className="text-sm text-gray-600">Overview of resources you&apos;ve uploaded</p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

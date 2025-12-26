@@ -3,11 +3,11 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { 
-    Dialog, DialogContent, DialogDescription, DialogFooter, 
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter,
     DialogHeader, DialogTitle
 } from '../ui/dialog';
-import { 
+import {
     Users, Plus, Settings, MoreHorizontal, ArrowRight, Folder, X,
     Check, FolderPlus, Bell, Copy, Lock
 } from 'lucide-react';
@@ -47,7 +47,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
     // Workspace Edit State
     const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
     const [editDialogOpen, setEditDialogOpen] = useState(false);
-    
+
     // Join & Notification States
     const [joinDialogOpen, setJoinDialogOpen] = useState(false);
     const [joinCode, setJoinCode] = useState('');
@@ -88,11 +88,11 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
 
     const handleCreateWorkspace = () => {
         if (!newWsName.trim()) return;
-        
+
         // Random gradient
         const colors = [
             'from-indigo-500 to-purple-600',
-            'from-pink-500 to-rose-600', 
+            'from-pink-500 to-rose-600',
             'from-blue-500 to-cyan-600',
             'from-emerald-500 to-teal-600',
             'from-orange-500 to-amber-600'
@@ -103,7 +103,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
             id: `ws-${Date.now()}`,
             name: newWsName,
             type: participationType === 'open' ? 'Team' : 'Project',
-            members: 1, 
+            members: 1,
             lastActive: 'Just now',
             isFolder: false,
             avatarColor: randomColor,
@@ -125,12 +125,12 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
 
         // Find workspace (recursive search)
         let foundWs: Workspace | null = null;
-        const findWs = (list: DashboardItem[]) => {
+        const findWs = (list: DashboardItem[]): void => {
             for (const item of list) {
                 if (item.isFolder) {
-                    findWs(item.items);
+                    findWs((item as WorkspaceFolder).items);
                 } else {
-                    if (item.inviteCode === code) foundWs = item;
+                    if ((item as Workspace).inviteCode === code) foundWs = item as Workspace;
                 }
             }
         };
@@ -142,49 +142,49 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
         }
 
         if (foundWs.participationType === 'approval') {
-             // Simulate request from a guest user
-             const newRequest = { userId: `guest-${Date.now()}`, userName: 'Guest User', timestamp: Date.now() };
-             const updateWs = (list: DashboardItem[]): DashboardItem[] => {
-                 return list.map(item => {
-                     if (item.isFolder) return { ...item, items: updateWs(item.items) };
-                     if (item.id === foundWs!.id) {
-                         return { 
-                             ...item, 
-                             pendingRequests: [...(item.pendingRequests || []), newRequest] 
-                         };
-                     }
-                     return item;
-                 });
-             };
-             onUpdateItems(updateWs(items));
-             toast.success("참가 신청되었습니다.");
-             setJoinDialogOpen(false);
-             setJoinCode('');
+            // Simulate request from a guest user
+            const newRequest = { userId: `guest-${Date.now()}`, userName: 'Guest User', timestamp: Date.now() };
+            const updateWs = (list: DashboardItem[]): DashboardItem[] => {
+                return list.map(item => {
+                    if (item.isFolder) return { ...item, items: updateWs(item.items) };
+                    if (item.id === foundWs!.id) {
+                        return {
+                            ...item,
+                            pendingRequests: [...(item.pendingRequests || []), newRequest]
+                        };
+                    }
+                    return item;
+                });
+            };
+            onUpdateItems(updateWs(items));
+            toast.success("참가 신청되었습니다.");
+            setJoinDialogOpen(false);
+            setJoinCode('');
         } else {
-             // Join directly
-             toast.success(`${foundWs.name} 워크스페이스에 참가했습니다!`);
-             onEnterWorkspace(foundWs);
-             setJoinDialogOpen(false);
-             setJoinCode('');
+            // Join directly
+            toast.success(`${foundWs.name} 워크스페이스에 참가했습니다!`);
+            onEnterWorkspace(foundWs);
+            setJoinDialogOpen(false);
+            setJoinCode('');
         }
     };
 
     const handleAcceptRequest = (wsId: string, req: any) => {
         const updateWs = (list: DashboardItem[]): DashboardItem[] => {
-             return list.map(item => {
-                 if (item.isFolder) return { ...item, items: updateWs(item.items) };
-                 if (item.id === wsId) {
-                     return { 
-                         ...item, 
-                         members: item.members + 1,
-                         pendingRequests: (item.pendingRequests || []).filter(r => r.userId !== req.userId)
-                     };
-                 }
-                 return item;
-             });
-         };
-         onUpdateItems(updateWs(items));
-         toast.success("수락했습니다.");
+            return list.map(item => {
+                if (item.isFolder) return { ...item, items: updateWs(item.items) };
+                if (item.id === wsId) {
+                    return {
+                        ...item,
+                        members: item.members + 1,
+                        pendingRequests: (item.pendingRequests || []).filter(r => r.userId !== req.userId)
+                    };
+                }
+                return item;
+            });
+        };
+        onUpdateItems(updateWs(items));
+        toast.success("수락했습니다.");
     };
 
     const handleUpdateWorkspaceSettings = (updated: Workspace) => {
@@ -192,12 +192,12 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
             return list.map(item => {
                 if (item.id === updated.id) return updated;
                 if (item.isFolder) {
-                     return { ...item, items: updateRecursive(item.items) };
+                    return { ...item, items: updateRecursive(item.items) };
                 }
                 return item;
             });
         };
-        
+
         onUpdateItems(updateRecursive(items));
         setEditingWorkspace(null);
         setEditDialogOpen(false);
@@ -235,7 +235,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
 
     const confirmCreateFolder = () => {
         if (!pendingFolderMerge) return;
-        
+
         const newFolder: WorkspaceFolder = {
             id: `folder-${Date.now()}`,
             name: newFolderName || 'New Folder',
@@ -269,9 +269,9 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
         if (!wsToRemove) return;
 
         const updatedFolderItems = activeFolder.items.filter(i => i.id !== wsId);
-        
+
         const updatedFolder = { ...activeFolder, items: updatedFolderItems };
-        
+
         // Update Items: Replace folder with updated one, append removed ws to root
         let newItems = items.map(i => i.id === activeFolder.id ? updatedFolder : i);
         newItems.push(wsToRemove);
@@ -283,7 +283,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
         } else {
             setActiveFolder(updatedFolder);
         }
-        
+
         onUpdateItems(newItems);
     };
 
@@ -317,7 +317,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
     return (
         <DndProvider backend={HTML5Backend}>
             <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-                
+
                 {/* ① Header (Always Fixed) */}
                 <header className="h-16 bg-white border-b flex items-center justify-between px-6 sticky top-0 z-50">
                     <div className="flex items-center gap-2">
@@ -355,7 +355,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                         ) : (
                                             notifications.map((n, idx) => (
                                                 <div key={idx} className="p-3 border-b last:border-0 hover:bg-slate-50 transition-colors flex gap-3 items-start">
-                                                    <div 
+                                                    <div
                                                         className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs shrink-0 cursor-pointer hover:ring-2 ring-indigo-200"
                                                         onClick={(e) => { e.stopPropagation(); openUserProfile(n.req.userName); }}
                                                     >
@@ -380,7 +380,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                     </div>
                                 </PopoverContent>
                             </Popover>
-                            
+
                             <div className="w-px h-8 bg-slate-200 mx-2" />
 
                             <div className="text-right hidden sm:block">
@@ -396,13 +396,13 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                 </header>
 
                 <main className="flex-1 max-w-6xl mx-auto w-full p-6 md:p-10 flex flex-col gap-10">
-                    
+
                     {/* Quick Actions */}
                     <section>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <QuickActionCard 
-                                icon={<Plus className="w-8 h-8 text-white" />} 
-                                label="Join Meeting" 
+                            <QuickActionCard
+                                icon={<Plus className="w-8 h-8 text-white" />}
+                                label="Join Meeting"
                                 subLabel="Join via ID or link"
                                 color="bg-indigo-500 hover:bg-indigo-600"
                                 onClick={() => setJoinDialogOpen(true)}
@@ -433,11 +433,11 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                                 {items.map((item, index) => (
-                                    <DraggableItem 
-                                        key={item.id} 
+                                    <DraggableItem
+                                        key={item.id}
                                         index={index}
-                                        item={item} 
-                                        onEnter={onEnterWorkspace} 
+                                        item={item}
+                                        onEnter={onEnterWorkspace}
                                         onDrop={handleMerge}
                                         onOpenFolder={openFolder}
                                         moveWorkspace={moveWorkspace}
@@ -447,7 +447,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
 
                                 {/* 'Create New' Card */}
                                 <div className="p-3 h-full">
-                                    <button 
+                                    <button
                                         onClick={() => setIsCreateOpen(true)}
                                         className="w-full flex flex-col items-center justify-center h-full min-h-[180px] border-2 border-dashed border-slate-200 rounded-xl hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group"
                                     >
@@ -476,14 +476,14 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                             <div className="grid gap-2">
                                 <Label className="text-slate-700 font-semibold">커버 이미지 (선택)</Label>
                                 <div className="grid grid-cols-5 gap-2">
-                                    <button 
+                                    <button
                                         onClick={() => setSelectedBg(null)}
                                         className={`h-16 rounded-lg border-2 flex items-center justify-center bg-slate-100 transition-all ${!selectedBg ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-slate-200 hover:border-slate-300'}`}
                                     >
                                         <div className="text-xs font-bold text-slate-500">None</div>
                                     </button>
                                     {PRESET_BG_IMAGES.map((img, idx) => (
-                                        <button 
+                                        <button
                                             key={idx}
                                             onClick={() => setSelectedBg(img)}
                                             className={`h-16 rounded-lg border-2 relative overflow-hidden transition-all group ${selectedBg === img ? 'border-indigo-600 ring-2 ring-indigo-100' : 'border-transparent hover:ring-2 hover:ring-slate-200'}`}
@@ -504,9 +504,9 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                     <span>워크스페이스 이름 <span className="text-red-500">*</span></span>
                                     <span className="text-xs text-slate-400 font-normal">(최대 20글자)</span>
                                 </Label>
-                                <Input 
-                                    id="name" 
-                                    placeholder="예: Design Team" 
+                                <Input
+                                    id="name"
+                                    placeholder="예: Design Team"
                                     value={newWsName}
                                     onChange={(e) => setNewWsName(e.target.value)}
                                     maxLength={20}
@@ -514,11 +514,11 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                     autoFocus
                                 />
                             </div>
-                            
+
                             <div className="grid gap-3">
                                 <Label className="text-slate-700 font-semibold">참가 설정 <span className="text-red-500">*</span></Label>
-                                
-                                <div 
+
+                                <div
                                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${participationType === 'open' ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                                     onClick={() => setParticipationType('open')}
                                 >
@@ -533,7 +533,7 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                     </p>
                                 </div>
 
-                                <div 
+                                <div
                                     className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${participationType === 'approval' ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                                     onClick={() => setParticipationType('approval')}
                                 >
@@ -578,11 +578,11 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                 {pendingFolderMerge ? '새 폴더의 이름을 입력해주세요.' : '폴더 이름과 내용을 관리합니다.'}
                             </DialogDescription>
                         </DialogHeader>
-                        
+
                         <div className="py-4">
                             <Label className="mb-2 block font-semibold text-slate-700">Folder Name</Label>
                             <div className="flex gap-2">
-                                <Input 
+                                <Input
                                     value={newFolderName}
                                     onChange={(e) => setNewFolderName(e.target.value)}
                                     placeholder="Enter folder name..."
@@ -604,9 +604,9 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                                     </>
                                 ) : (
                                     activeFolder?.items.map(ws => (
-                                        <WorkspacePreviewCard 
-                                            key={ws.id} 
-                                            ws={ws} 
+                                        <WorkspacePreviewCard
+                                            key={ws.id}
+                                            ws={ws}
                                             onRemove={() => removeFromFolder(ws.id)}
                                             onEnter={() => onEnterWorkspace(ws)}
                                         />
@@ -640,9 +640,9 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
                                 <Label htmlFor="joinCode">Invite Code</Label>
-                                <Input 
-                                    id="joinCode" 
-                                    placeholder="코드를 입력하세요." 
+                                <Input
+                                    id="joinCode"
+                                    placeholder="코드를 입력하세요."
                                     value={joinCode}
                                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                                     maxLength={10}
@@ -659,10 +659,10 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
                     </DialogContent>
                 </Dialog>
 
-                <WorkspaceSettingsDialog 
-                    open={editDialogOpen} 
-                    onOpenChange={setEditDialogOpen} 
-                    workspace={editingWorkspace} 
+                <WorkspaceSettingsDialog
+                    open={editDialogOpen}
+                    onOpenChange={setEditDialogOpen}
+                    workspace={editingWorkspace}
                     onUpdate={handleUpdateWorkspaceSettings}
                 />
 
@@ -674,8 +674,8 @@ export function HomeDashboard({ items, userProfile, onUpdateItems, onLogout, onE
 // --- Sub Components ---
 
 // Draggable Workspace Item
-function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspace, onEdit }: { 
-    item: DashboardItem, 
+function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspace, onEdit }: {
+    item: DashboardItem,
     index: number,
     onEnter: (ws: Workspace) => void,
     onDrop: (sourceId: string, targetId: string) => void,
@@ -710,8 +710,8 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
             const hoverIndex = index;
 
             if (dragIndex === hoverIndex) {
-                 setIsMergeTarget(false);
-                 return;
+                setIsMergeTarget(false);
+                return;
             }
 
             const hoverBoundingRect = ref.current?.getBoundingClientRect();
@@ -722,7 +722,7 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
             const hoverClientY = clientOffset.y - hoverBoundingRect.top;
             const hoverClientX = clientOffset.x - hoverBoundingRect.left;
 
-            const isMergeZone = 
+            const isMergeZone =
                 hoverClientX > hoverMiddleX * 0.5 && hoverClientX < hoverMiddleX * 1.5 &&
                 hoverClientY > hoverMiddleY * 0.5 && hoverClientY < hoverMiddleY * 1.5;
 
@@ -734,7 +734,7 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
                 setIsMergeTarget(true);
                 return;
             }
-            
+
             setIsMergeTarget(false);
 
             if (!sortTimer.current) {
@@ -742,35 +742,35 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
                     moveWorkspace(dragIndex, hoverIndex);
                     draggedItem.index = hoverIndex;
                     sortTimer.current = null;
-                }, 200); 
+                }, 200);
             }
         },
         drop(draggedItem: { id: string, index: number }, monitor) {
-             if (sortTimer.current) {
-                 clearTimeout(sortTimer.current);
-                 sortTimer.current = null;
-             }
-             
-             if (draggedItem.id !== item.id) {
-                 if (!ref.current) return;
-                 const hoverBoundingRect = ref.current?.getBoundingClientRect();
-                 const clientOffset = monitor.getClientOffset();
-                 if (clientOffset) {
+            if (sortTimer.current) {
+                clearTimeout(sortTimer.current);
+                sortTimer.current = null;
+            }
+
+            if (draggedItem.id !== item.id) {
+                if (!ref.current) return;
+                const hoverBoundingRect = ref.current?.getBoundingClientRect();
+                const clientOffset = monitor.getClientOffset();
+                if (clientOffset) {
                     const hoverClientY = clientOffset.y - hoverBoundingRect.top;
                     const hoverClientX = clientOffset.x - hoverBoundingRect.left;
                     const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
                     const hoverMiddleX = (hoverBoundingRect.right - hoverBoundingRect.left) / 2;
-                    
-                    const isMergeZone = 
+
+                    const isMergeZone =
                         hoverClientX > hoverMiddleX * 0.5 && hoverClientX < hoverMiddleX * 1.5 &&
                         hoverClientY > hoverMiddleY * 0.5 && hoverClientY < hoverMiddleY * 1.5;
-                        
+
                     if (isMergeZone) {
                         onDrop(draggedItem.id, item.id);
                     }
-                 }
-             }
-             setIsMergeTarget(false);
+                }
+            }
+            setIsMergeTarget(false);
         }
     }, [item.id, index, moveWorkspace, onDrop]);
 
@@ -789,7 +789,7 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
     if (item.isFolder) {
         return (
             <div ref={ref} className={`p-3 h-full opacity-${isDragging ? '50' : '100'} transition-all`}>
-                <div 
+                <div
                     onClick={() => onOpenFolder(item)}
                     className={`bg-slate-100/80 rounded-2xl p-4 border-2 border-slate-200 h-[180px] cursor-pointer hover:bg-slate-200/50 hover:border-indigo-300 transition-all group relative ${isOver && isMergeTarget ? 'ring-4 ring-indigo-500 ring-offset-2 scale-105 bg-indigo-50' : ''}`}
                 >
@@ -822,7 +822,7 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
 
     return (
         <div ref={ref} className={`p-3 h-full opacity-${isDragging ? '50' : '100'} transition-all ${isOver && isMergeTarget ? 'scale-105' : ''}`}>
-            <Card 
+            <Card
                 className={`group cursor-pointer hover:shadow-lg hover:border-indigo-200 transition-all duration-200 relative overflow-hidden h-full min-h-[180px] ${isOver && isMergeTarget ? 'ring-4 ring-indigo-500 ring-offset-2 border-indigo-500' : ''}`}
                 onClick={() => onEnter(item)}
                 style={item.backgroundImageUrl ? {
@@ -844,7 +844,7 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
                 )}
 
                 <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity z-10" />
-                
+
                 <CardHeader className="pb-3 relative z-10">
                     <div className="flex justify-between items-start">
                         <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${item.avatarColor || 'from-indigo-500 to-purple-600'} flex items-center justify-center text-white font-bold text-lg shadow-sm ${item.backgroundImageUrl ? 'shadow-md border border-white/20' : ''}`}>
@@ -871,11 +871,10 @@ function DraggableItem({ item, index, onEnter, onDrop, onOpenFolder, moveWorkspa
                         )}
                     </div>
                 </CardContent>
-                <CardFooter className={`pt-3 border-t flex justify-between items-center text-xs transition-colors relative z-10 ${
-                    item.backgroundImageUrl 
-                        ? 'bg-black/30 text-slate-300 border-white/10 group-hover:bg-black/40' 
+                <CardFooter className={`pt-3 border-t flex justify-between items-center text-xs transition-colors relative z-10 ${item.backgroundImageUrl
+                        ? 'bg-black/30 text-slate-300 border-white/10 group-hover:bg-black/40'
                         : 'bg-slate-50/50 text-slate-400 group-hover:bg-indigo-50/30'
-                }`}>
+                    }`}>
                     <span>Active {item.lastActive}</span>
                     <span className={`font-bold opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity ${item.backgroundImageUrl ? 'text-white' : 'text-indigo-600'}`}>
                         Enter <ArrowRight className="w-3 h-3" />
@@ -897,9 +896,9 @@ function WorkspacePreviewCard({ ws, onRemove, onEnter }: { ws: Workspace, onRemo
                 <div className="font-bold text-sm truncate">{ws.name}</div>
                 <div className="text-xs text-slate-500">{ws.type}</div>
             </div>
-            
+
             {onRemove && (
-                <button 
+                <button
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                     className="absolute -top-2 -right-2 bg-white rounded-full p-1 border border-slate-200 shadow-sm hover:bg-red-50 hover:text-red-500 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
@@ -908,9 +907,9 @@ function WorkspacePreviewCard({ ws, onRemove, onEnter }: { ws: Workspace, onRemo
             )}
 
             {onEnter && (
-                 <Button size="sm" variant="ghost" className="opacity-0 group-hover:opacity-100 ml-auto" onClick={onEnter}>
+                <Button size="sm" variant="ghost" className="opacity-0 group-hover:opacity-100 ml-auto" onClick={onEnter}>
                     <ArrowRight className="w-4 h-4" />
-                 </Button>
+                </Button>
             )}
         </div>
     );
@@ -931,21 +930,21 @@ function QuickActionCard({ icon, label, subLabel, color, onClick }: any) {
     );
 }
 
-function WorkspaceSettingsDialog({ 
-    open, 
-    onOpenChange, 
-    workspace, 
+function WorkspaceSettingsDialog({
+    open,
+    onOpenChange,
+    workspace,
     onUpdate
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
+}: {
+    open: boolean,
+    onOpenChange: (open: boolean) => void,
     workspace: Workspace | null,
     onUpdate: (ws: Workspace) => void
 }) {
     const [name, setName] = React.useState('');
     const [participation, setParticipation] = React.useState<'open' | 'approval'>('open');
     const [selectedBg, setSelectedBg] = React.useState<string | null>(null);
-    
+
     React.useEffect(() => {
         if (workspace) {
             setName(workspace.name);
@@ -982,7 +981,7 @@ function WorkspaceSettingsDialog({
                                 <TabsTrigger value="general" className="justify-start px-3 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">General</TabsTrigger>
                                 <TabsTrigger value="members" className="justify-start px-3 py-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">Members & Invite</TabsTrigger>
                             </TabsList>
-                            
+
                             <div className="mt-auto pt-4 border-t border-slate-200">
                                 <div className="text-xs text-slate-500 px-2 pb-2">Workspace ID</div>
                                 <div className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-mono text-slate-600 select-all">
@@ -995,7 +994,7 @@ function WorkspaceSettingsDialog({
                                     <DialogTitle>General Settings</DialogTitle>
                                     <DialogDescription>Update your workspace basic info.</DialogDescription>
                                 </DialogHeader>
-                                
+
                                 <div className="space-y-6">
                                     <div className="space-y-2">
                                         <Label>Workspace Name</Label>
@@ -1005,14 +1004,14 @@ function WorkspaceSettingsDialog({
                                     <div className="space-y-2">
                                         <Label>Cover Image</Label>
                                         <div className="grid grid-cols-4 gap-2">
-                                            <button 
+                                            <button
                                                 onClick={() => setSelectedBg(null)}
                                                 className={`aspect-video rounded-lg border-2 flex items-center justify-center bg-slate-100 text-xs font-bold text-slate-500 ${!selectedBg ? 'border-indigo-600' : 'border-transparent'}`}
                                             >
                                                 None
                                             </button>
                                             {PRESET_BG_IMAGES.map((img, idx) => (
-                                                <button 
+                                                <button
                                                     key={idx}
                                                     onClick={() => setSelectedBg(img)}
                                                     className={`aspect-video rounded-lg border-2 relative overflow-hidden ${selectedBg === img ? 'border-indigo-600' : 'border-transparent'}`}
@@ -1042,7 +1041,7 @@ function WorkspaceSettingsDialog({
                                             </label>
                                         </div>
                                     </div>
-                                    
+
                                     <div className="pt-4 border-t flex justify-end">
                                         <Button onClick={handleSave} className="bg-indigo-600 text-white">Save Changes</Button>
                                     </div>

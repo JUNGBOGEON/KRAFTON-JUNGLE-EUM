@@ -10,12 +10,12 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Progress } from '../ui/progress';
-import { 
-  Upload, 
-  FileText, 
-  Video, 
+import {
+  Upload,
+  FileText,
+  Video,
   Image,
-  Download, 
+  Download,
   Eye,
   Trash2,
   Search,
@@ -52,14 +52,14 @@ export function ResourceManagement() {
     description: '',
     subject: '',
     class: '',
-    type: 'pdf' as const,
+    type: 'pdf' as 'pdf' | 'video' | 'image' | 'document',
     accessLevel: 'free'
   });
 
   // Mock data
   const classes = ['JSS 1A', 'JSS 1B', 'JSS 2A', 'JSS 2B', 'JSS 3A', 'SSS 1A', 'SSS 2A', 'SSS 3A'];
   const subjects = ['Mathematics', 'English Language', 'Physics', 'Chemistry', 'Biology', 'Geography'];
-  
+
   const resources: Resource[] = [
     {
       id: 1,
@@ -115,7 +115,7 @@ export function ResourceManagement() {
     const files = event.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      
+
       // Validate file size (max 10MB for PDFs, 100MB for videos)
       const maxSize = resourceDetails.type === 'video' ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
       if (file.size > maxSize) {
@@ -125,13 +125,13 @@ export function ResourceManagement() {
 
       setIsUploading(true);
       setUploadStatus('uploading');
-      
+
       // Simulate upload progress
       let progress = 0;
       const interval = setInterval(() => {
         progress += 10;
         setUploadProgress(progress);
-        
+
         if (progress >= 100) {
           clearInterval(interval);
           setIsUploading(false);
@@ -152,10 +152,10 @@ export function ResourceManagement() {
 
   const filteredResources = resources.filter(resource => {
     const matchesSearch = resource.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         resource.description.toLowerCase().includes(searchTerm.toLowerCase());
+      resource.description.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = filterType === 'all' || resource.type === filterType;
     const matchesSubject = filterSubject === 'all' || resource.subject === filterSubject;
-    
+
     return matchesSearch && matchesType && matchesSubject;
   });
 
@@ -223,13 +223,13 @@ export function ResourceManagement() {
                   <Input
                     id="title"
                     value={resourceDetails.title}
-                    onChange={(e) => setResourceDetails({...resourceDetails, title: e.target.value})}
+                    onChange={(e) => setResourceDetails({ ...resourceDetails, title: e.target.value })}
                     placeholder="e.g., Quadratic Equations - Past Questions"
                   />
                 </div>
                 <div>
                   <Label htmlFor="type">Resource Type</Label>
-                  <Select value={resourceDetails.type} onValueChange={(value: any) => setResourceDetails({...resourceDetails, type: value})}>
+                  <Select value={resourceDetails.type} onValueChange={(value: any) => setResourceDetails({ ...resourceDetails, type: value })}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -243,7 +243,7 @@ export function ResourceManagement() {
                 </div>
                 <div>
                   <Label htmlFor="subject">Subject</Label>
-                  <Select value={resourceDetails.subject} onValueChange={(value) => setResourceDetails({...resourceDetails, subject: value})}>
+                  <Select value={resourceDetails.subject} onValueChange={(value: string) => setResourceDetails({ ...resourceDetails, subject: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Choose a subject" />
                     </SelectTrigger>
@@ -256,7 +256,7 @@ export function ResourceManagement() {
                 </div>
                 <div>
                   <Label htmlFor="class">Target Class</Label>
-                  <Select value={resourceDetails.class} onValueChange={(value) => setResourceDetails({...resourceDetails, class: value})}>
+                  <Select value={resourceDetails.class} onValueChange={(value: string) => setResourceDetails({ ...resourceDetails, class: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Choose a class" />
                     </SelectTrigger>
@@ -274,7 +274,7 @@ export function ResourceManagement() {
                 <Textarea
                   id="description"
                   value={resourceDetails.description}
-                  onChange={(e) => setResourceDetails({...resourceDetails, description: e.target.value})}
+                  onChange={(e) => setResourceDetails({ ...resourceDetails, description: e.target.value })}
                   placeholder="Provide a brief description of this resource..."
                   rows={3}
                 />
@@ -282,7 +282,7 @@ export function ResourceManagement() {
 
               <div>
                 <Label htmlFor="accessLevel">Access Level</Label>
-                <Select value={resourceDetails.accessLevel} onValueChange={(value) => setResourceDetails({...resourceDetails, accessLevel: value})}>
+                <Select value={resourceDetails.accessLevel} onValueChange={(value: string) => setResourceDetails({ ...resourceDetails, accessLevel: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -305,11 +305,11 @@ export function ResourceManagement() {
                   />
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  {resourceDetails.type === 'video' 
+                  {resourceDetails.type === 'video'
                     ? 'Accepted formats: MP4, AVI, MOV. Maximum size: 100MB.'
                     : resourceDetails.type === 'image'
-                    ? 'Accepted formats: JPG, PNG, GIF. Maximum size: 10MB.'
-                    : 'Accepted formats: PDF, DOC, DOCX. Maximum size: 10MB.'
+                      ? 'Accepted formats: JPG, PNG, GIF. Maximum size: 10MB.'
+                      : 'Accepted formats: PDF, DOC, DOCX. Maximum size: 10MB.'
                   }
                 </p>
               </div>
@@ -328,7 +328,7 @@ export function ResourceManagement() {
                 <Alert>
                   <CheckCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Resource uploaded successfully! It's now available for students to access.
+                    Resource uploaded successfully! It&apos;s now available for students to access.
                   </AlertDescription>
                 </Alert>
               )}
@@ -342,7 +342,7 @@ export function ResourceManagement() {
                 </Alert>
               )}
 
-              <Button 
+              <Button
                 className="w-full"
                 disabled={!resourceDetails.title || !resourceDetails.subject || !resourceDetails.class || isUploading}
               >
