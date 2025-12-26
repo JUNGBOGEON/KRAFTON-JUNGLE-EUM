@@ -6,6 +6,14 @@ const nextConfig = {
         // your project has TypeScript errors. Existing type issues in HomeDashboard.tsx
         ignoreBuildErrors: true,
     },
+    async rewrites() {
+        return [
+            {
+                source: '/api/video/:path*',
+                destination: 'http://localhost:8080/api/:path*', // Proxy to Go Backend
+            },
+        ];
+    },
 };
 
 export default nextConfig;
