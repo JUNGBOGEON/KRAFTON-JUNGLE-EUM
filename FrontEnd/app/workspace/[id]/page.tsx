@@ -8,7 +8,7 @@ import { Workspace } from '@/types/workspace';
 export default function WorkspacePage() {
     const params = useParams();
     const router = useRouter();
-    const { dashboardItems, openProfile } = useApp();
+    const { dashboardItems, openProfile, userProfile } = useApp();
 
     const workspaceId = params.id as string;
 
@@ -53,6 +53,7 @@ export default function WorkspacePage() {
                 onSwitchWorkspace={(ws) => router.push(`/workspace/${ws.id}`)}
                 onLogout={() => router.push('/dashboard')}
                 onOpenProfile={openProfile}
+                userProfile={userProfile}
             />
         </div>
     );

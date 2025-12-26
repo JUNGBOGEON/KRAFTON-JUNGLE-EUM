@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -6,7 +6,7 @@ import {
     Hash, Plus, Mic, Settings, LogOut,
     Video, PenTool, Volume2, ChevronDown, UserPlus,
     MessageSquare, Bell, Search, Phone, Folder, Lock,
-    Calendar, HardDrive
+    Calendar, HardDrive, GripVertical
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
@@ -14,6 +14,8 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { DndProvider, useDrag, useDrop } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Feature Components
 import { TranslationChat } from './chat/TranslationChat';
@@ -37,6 +39,20 @@ interface Channel {
     unread?: number;
     isPrivate?: boolean;
 }
+
+// Category structure for drag and drop
+interface ChannelCategory {
+    id: string;
+    name: string;
+    channelTypes: ChannelType[];
+    createType: ChannelType;
+}
+
+const INITIAL_CATEGORIES: ChannelCategory[] = [
+    { id: 'cat-text', name: 'Text Channels', channelTypes: ['text', 'announcement'], createType: 'text' },
+    { id: 'cat-workspace', name: 'Workspace', channelTypes: ['calendar', 'storage'], createType: 'calendar' },
+    { id: 'cat-voice', name: 'Voice & Meetings', channelTypes: ['voice', 'meeting'], createType: 'voice' },
+];
 
 const CHANNELS: Channel[] = [
     { id: 'c1', name: 'announcements', type: 'announcement', unread: 0 },
@@ -63,6 +79,8 @@ interface WorkspaceLayoutProps {
     onSwitchWorkspace?: (workspace: Workspace) => void;
     // New prop for global profile handling
     onOpenProfile: (user?: UserProfile) => void;
+    // User Profile from global state
+    userProfile: UserProfile | null;
 }
 
 export function WorkspaceLayout({
@@ -71,9 +89,11 @@ export function WorkspaceLayout({
     activeWorkspaceId,
     dashboardItems = [],
     onSwitchWorkspace,
-    onOpenProfile
+    onOpenProfile,
+    userProfile
 }: WorkspaceLayoutProps) {
     const [channels, setChannels] = useState<Channel[]>(CHANNELS);
+    const [categories, setCategories] = useState<ChannelCategory[]>(INITIAL_CATEGORIES);
     const [currentChannel, setCurrentChannel] = useState<Channel>(channels[1]); // Default: general
     const [isInMeeting, setIsInMeeting] = useState(false);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
@@ -87,15 +107,6 @@ export function WorkspaceLayout({
     // Channel Settings State
     const [settingsChannel, setSettingsChannel] = useState<Channel | null>(null);
     const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
-
-    // Mock User Profile (Current User) - In a real app this would come from props or context
-    const [userProfile, setUserProfile] = useState<UserProfile>({
-        id: 'me',
-        displayName: 'Kim Min-su',
-        statusMessage: 'Working remotely',
-        avatarUrl: MEMBERS[0].avatar,
-        email: 'minsu@example.com'
-    });
 
     const handleChannelClick = (channel: Channel) => {
         setCurrentChannel(channel);
@@ -147,6 +158,34 @@ export function WorkspaceLayout({
             const remaining = channels.filter(c => c.id !== id && c.type === 'text');
             if (remaining.length > 0) setCurrentChannel(remaining[0]);
         }
+    };
+
+    // Channel Drag and Drop - Move channel to new position
+    const moveChannel = (dragIndex: number, hoverIndex: number, channelType: string[]) => {
+        setChannels(prev => {
+            const filteredChannels = prev.filter(c => channelType.includes(c.type));
+            const otherChannels = prev.filter(c => !channelType.includes(c.type));
+
+            const draggedChannel = filteredChannels[dragIndex];
+            const newFiltered = [...filteredChannels];
+            newFiltered.splice(dragIndex, 1);
+            newFiltered.splice(hoverIndex, 0, draggedChannel);
+
+            // Reconstruct the full list maintaining relative order
+            const result: Channel[] = [];
+            let filteredIdx = 0;
+            let otherIdx = 0;
+
+            for (const ch of prev) {
+                if (channelType.includes(ch.type)) {
+                    result.push(newFiltered[filteredIdx++]);
+                } else {
+                    result.push(otherChannels[otherIdx++]);
+                }
+            }
+
+            return result;
+        });
     };
 
     // Open Profile Dialog (My Profile)
@@ -335,47 +374,25 @@ export function WorkspaceLayout({
                                 />
                             ))}
                         </div>
-                    </ScrollArea>
+                    </nav>
 
-                    {/* User Control Panel */}
-                    <div className="h-[52px] bg-[#232428] flex items-center px-2 gap-2">
-                        <Avatar className="w-8 h-8 transition-opacity relative group cursor-pointer hover:opacity-90" onClick={openMyProfile}>
-                            <AvatarImage src={userProfile.avatarUrl} />
-                            <AvatarFallback>{userProfile.displayName.charAt(0)}</AvatarFallback>
-                            <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#232428]" />
-                        </Avatar>
-                        <div className="flex-1 overflow-hidden cursor-pointer" onClick={openMyProfile}>
-                            <div className="text-sm font-bold text-white truncate leading-tight hover:underline">{userProfile.displayName}</div>
-                            <div className="text-xs text-[#949BA4] truncate leading-tight">Online</div>
+                    {/* ① Sidebar (Channel List) */}
+                    <aside className="w-[240px] bg-[#2B2D31] text-[#949BA4] flex flex-col shrink-0 relative z-20 rounded-tl-xl my-0 ml-0 overflow-hidden">
+                        {/* Sidebar Header */}
+                        <div className="h-12 px-4 flex items-center justify-between border-b border-[#1F2023] hover:bg-[#35373C] transition-colors cursor-pointer group shadow-sm">
+                            <span className="font-bold text-white truncate">{workspaceName}</span>
+                            <ChevronDown className="w-4 h-4 text-[#949BA4] group-hover:text-white" />
                         </div>
-                        <div className="flex items-center">
-                            <Button variant="ghost" size="icon" className="w-8 h-8 text-[#949BA4] hover:text-white hover:bg-[#35373C]">
-                                <Mic className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="w-8 h-8 text-[#949BA4] hover:text-white hover:bg-[#35373C]" onClick={() => setShowSettings(true)}>
-                                <Settings className="w-4 h-4" />
-                            </Button>
-                        </div>
-                    </div>
-                </aside>
 
-                {/* ② Main Content */}
-                <main className="flex-1 flex flex-col min-w-0 bg-white relative">
-                    {/* Render Content Based on Channel Type */}
-                    {currentChannel.type === 'calendar' ? (
-                        <CalendarChannel />
-                    ) : currentChannel.type === 'storage' ? (
-                        <StorageChannel />
-                    ) : (
-                        <>
-                            {/* Standard Header for Text/Voice */}
-                            <div className="h-12 px-4 border-b flex items-center justify-between shrink-0 shadow-sm z-10">
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                    <ChannelIcon channel={currentChannel} className="w-5 h-5 text-slate-400 shrink-0" />
-                                    <span className="font-bold text-slate-900 truncate">{currentChannel.name}</span>
-                                    <span className="hidden md:inline-block text-sm text-slate-400 truncate border-l ml-2 pl-2">
-                                        {currentChannel.isPrivate ? 'Private Channel' : 'Topic: Q4 Marketing Strategy Discussion'}
-                                    </span>
+                        <ScrollArea className="flex-1 px-2 py-4">
+                            {/* Text Channels */}
+                            <div className="mb-6">
+                                <div className="px-2 mb-1 flex items-center justify-between group">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-[#949BA4] group-hover:text-[#DBDEE1] transition-colors">Text Channels</span>
+                                    <Plus
+                                        className="w-4 h-4 cursor-pointer text-[#949BA4] hover:text-[#DBDEE1]"
+                                        onClick={() => handleOpenCreateChannel('text')}
+                                    />
                                 </div>
 
                                 {/* Header Actions */}
@@ -400,11 +417,41 @@ export function WorkspaceLayout({
                                         </Button>
                                     </div>
                                 </div>
+                                {channels.filter(c => ['calendar', 'storage'].includes(c.type)).map((channel, index) => (
+                                    <DraggableChannelItem
+                                        key={channel.id}
+                                        index={index}
+                                        channel={channel}
+                                        isActive={currentChannel.id === channel.id}
+                                        onClick={() => handleChannelClick(channel)}
+                                        onSettings={(e) => handleOpenChannelSettings(e, channel)}
+                                        moveChannel={(dragIdx, hoverIdx) => moveChannel(dragIdx, hoverIdx, ['calendar', 'storage'])}
+                                        channelTypes={['calendar', 'storage']}
+                                    />
+                                ))}
                             </div>
 
-                            {/* Chat Area */}
-                            <div className="flex-1 relative overflow-hidden">
-                                <TranslationChat onOpenProfile={openUserProfile} />
+                            {/* Voice / Meeting Channels */}
+                            <div className="mb-6">
+                                <div className="px-2 mb-1 flex items-center justify-between group">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-[#949BA4] group-hover:text-[#DBDEE1] transition-colors">Voice & Meetings</span>
+                                    <Plus
+                                        className="w-4 h-4 cursor-pointer text-[#949BA4] hover:text-[#DBDEE1]"
+                                        onClick={() => handleOpenCreateChannel('voice')}
+                                    />
+                                </div>
+                                {channels.filter(c => ['voice', 'meeting'].includes(c.type)).map((channel, index) => (
+                                    <DraggableChannelItem
+                                        key={channel.id}
+                                        index={index}
+                                        channel={channel}
+                                        isActive={false}
+                                        onClick={() => setIsInMeeting(true)}
+                                        onSettings={(e) => handleOpenChannelSettings(e, channel)}
+                                        moveChannel={(dragIdx, hoverIdx) => moveChannel(dragIdx, hoverIdx, ['voice', 'meeting'])}
+                                        channelTypes={['voice', 'meeting']}
+                                    />
+                                ))}
                             </div>
                         </>
                     )}
@@ -448,7 +495,7 @@ export function WorkspaceLayout({
                                                 <div className="text-[10px] text-[#5C5E66] truncate">{member.status}</div>
                                             </div>
                                         </div>
-                                    ))}
+                                    </div>
                                 </div>
                             );
                         })}
@@ -511,6 +558,9 @@ function ChannelItem({ channel, isActive, onClick, onSettings }: {
                     : 'hover:bg-[#35373C] hover:text-[#DBDEE1]'
                 }`}
         >
+            {/* Drag Handle */}
+            <GripVertical className="w-3 h-3 shrink-0 text-[#949BA4] opacity-0 group-hover:opacity-50 transition-opacity" />
+
             <ChannelIcon channel={channel} className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-[#949BA4]'}`} />
 
             <span className="truncate flex-1">{channel.name}</span>
