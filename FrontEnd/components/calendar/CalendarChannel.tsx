@@ -10,6 +10,7 @@ import { Textarea } from '../ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import { useApp } from '@/providers/AppProvider';
 
 interface Event {
     id: string;
@@ -42,11 +43,13 @@ const MOCK_EVENTS: Event[] = [
 ];
 
 export function CalendarChannel() {
+    const { userProfile } = useApp();
+
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState<Event[]>(MOCK_EVENTS);
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [isAddEventOpen, setIsAddEventOpen] = useState(false);
-    
+
     // New Event State
     const [newEventTitle, setNewEventTitle] = useState('');
     const [newEventTime, setNewEventTime] = useState('10:00');
@@ -68,7 +71,10 @@ export function CalendarChannel() {
             title: newEventTitle,
             time: newEventTime,
             description: newEventDesc,
-            author: { name: "Me" } // Mock current user
+            author: {
+                name: userProfile?.displayName || 'Me',
+                avatar: userProfile?.avatarUrl
+            }
         };
 
         setEvents([...events, newEvent]);
@@ -99,7 +105,7 @@ export function CalendarChannel() {
                         </Button>
                     </div>
                 </div>
-                
+
                 <Dialog open={isAddEventOpen} onOpenChange={setIsAddEventOpen}>
                     <DialogTrigger asChild>
                         <Button className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
@@ -116,24 +122,24 @@ export function CalendarChannel() {
                         <div className="space-y-4 py-4">
                             <div className="space-y-2">
                                 <Label>제목</Label>
-                                <Input 
-                                    placeholder="일정 제목을 입력하세요" 
+                                <Input
+                                    placeholder="일정 제목을 입력하세요"
                                     value={newEventTitle}
                                     onChange={(e) => setNewEventTitle(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>시간</Label>
-                                <Input 
-                                    type="time" 
+                                <Input
+                                    type="time"
                                     value={newEventTime}
                                     onChange={(e) => setNewEventTime(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>메모 (선택)</Label>
-                                <Textarea 
-                                    placeholder="간단한 메모를 남겨주세요" 
+                                <Textarea
+                                    placeholder="간단한 메모를 남겨주세요"
                                     value={newEventDesc}
                                     onChange={(e) => setNewEventDesc(e.target.value)}
                                 />
@@ -152,10 +158,10 @@ export function CalendarChannel() {
                 {weekDays.map((day, i) => {
                     const isSelected = isSameDay(day, selectedDate);
                     const dayEvents = events.filter(e => isSameDay(e.date, day));
-                    
+
                     return (
-                        <div 
-                            key={i} 
+                        <div
+                            key={i}
                             onClick={() => setSelectedDate(day)}
                             className={`
                                 min-h-[120px] border-r last:border-r-0 p-3 cursor-pointer transition-colors hover:bg-slate-50 relative
@@ -174,7 +180,7 @@ export function CalendarChannel() {
                                     {format(day, 'd')}
                                 </div>
                             </div>
-                            
+
                             <div className="space-y-1">
                                 {dayEvents.map(event => (
                                     <div key={event.id} className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded truncate font-medium">
@@ -213,6 +219,7 @@ export function CalendarChannel() {
                                             <div className="flex items-start justify-between">
                                                 <h4 className="font-bold text-slate-900 text-lg mb-1">{event.title}</h4>
                                                 <Avatar className="w-6 h-6">
+                                                    {event.author.avatar && <AvatarImage src={event.author.avatar} />}
                                                     <AvatarFallback>{event.author.name[0]}</AvatarFallback>
                                                 </Avatar>
                                             </div>
