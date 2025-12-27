@@ -12,6 +12,7 @@ export default function LanguageSetupPage() {
                 console.log('Language preference saved:', lang);
                 router.push('/dashboard');
             }}
+            onBack={() => router.push('/onboarding/profile')}
         />
     );
 }

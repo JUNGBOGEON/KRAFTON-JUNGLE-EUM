@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Check, Globe, ArrowRight, Search } from 'lucide-react';
+import { Check, Globe, ArrowRight, Search, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface LanguageSetupProps {
     onComplete: (lang: string) => void;
+    onBack?: () => void;
 }
 
 const LANGUAGES = [
@@ -21,7 +22,7 @@ const LANGUAGES = [
     { id: 'pt', label: 'Portuguese', native: 'Português', flag: '🇵🇹' },
 ];
 
-export function LanguageSetup({ onComplete }: LanguageSetupProps) {
+export function LanguageSetup({ onComplete, onBack }: LanguageSetupProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedLangId, setSelectedLangId] = useState<string>('ko');
 
@@ -29,7 +30,7 @@ export function LanguageSetup({ onComplete }: LanguageSetupProps) {
     const filteredLanguages = useMemo(() => {
         if (!searchQuery.trim()) return LANGUAGES;
         const query = searchQuery.toLowerCase().trim();
-        return LANGUAGES.filter(lang => 
+        return LANGUAGES.filter(lang =>
             lang.label.toLowerCase().includes(query)
         );
     }, [searchQuery]);
@@ -60,11 +61,26 @@ export function LanguageSetup({ onComplete }: LanguageSetupProps) {
 
     return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8 text-center"
             >
+                {/* Back Button */}
+                {onBack && (
+                    <div className="flex justify-start mb-4">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onBack}
+                            className="text-slate-600 hover:text-slate-900 -ml-2"
+                        >
+                            <ArrowLeft className="w-4 h-4 mr-1" />
+                            뒤로
+                        </Button>
+                    </div>
+                )}
+
                 <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6 text-indigo-600">
                     <Globe className="w-8 h-8" />
                 </div>
@@ -77,8 +93,8 @@ export function LanguageSetup({ onComplete }: LanguageSetupProps) {
                 {/* Search Input */}
                 <div className="relative mb-6">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                    <Input 
-                        placeholder="Search language (e.g. Korean)" 
+                    <Input
+                        placeholder="Search language (e.g. Korean)"
                         className="pl-10 h-12 text-lg bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -101,11 +117,10 @@ export function LanguageSetup({ onComplete }: LanguageSetupProps) {
                                     exit={{ opacity: 0, scale: 0.9 }}
                                     key={lang.id}
                                     onClick={() => setSelectedLangId(lang.id)}
-                                    className={`w-full flex items-center justify-between p-[9px] rounded-lg border-2 transition-all ${
-                                        selectedLangId === lang.id 
-                                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200' 
-                                        : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-600'
-                                    }`}
+                                    className={`w-full flex items-center justify-between p-[9px] rounded-lg border-2 transition-all ${selectedLangId === lang.id
+                                            ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200'
+                                            : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-600'
+                                        }`}
                                 >
                                     <div className="flex items-center gap-2">
                                         <span className="text-[19px]">{lang.flag}</span>
@@ -130,8 +145,8 @@ export function LanguageSetup({ onComplete }: LanguageSetupProps) {
                     )}
                 </div>
 
-                <Button 
-                    size="lg" 
+                <Button
+                    size="lg"
                     className="w-full h-12 text-lg rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => onComplete(selectedLangId)}
                     disabled={!selectedLangId || filteredLanguages.length === 0}

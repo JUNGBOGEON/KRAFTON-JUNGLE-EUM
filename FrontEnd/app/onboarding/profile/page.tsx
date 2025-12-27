@@ -14,6 +14,7 @@ export default function ProfileSetupPage() {
                 setUserProfile(profile);
                 router.push('/onboarding/language');
             }}
+            onBack={() => router.push('/')}
         />
     );
 }
