@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"math/rand"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
@@ -215,9 +218,10 @@ func (h *ChatHandler) toChatLogResponse(log *model.ChatLog) ChatLogResponse {
 // 미팅 코드 생성
 func generateMeetingCode() string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 	code := make([]byte, 10)
 	for i := range code {
-		code[i] = charset[i%len(charset)]
+		code[i] = charset[seededRand.Intn(len(charset))]
 	}
 	return string(code)
 }

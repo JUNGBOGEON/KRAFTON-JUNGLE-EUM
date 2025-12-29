@@ -76,9 +76,9 @@ func ConnectDB() (*gorm.DB, error) {
 	}
 
 	// Aurora Serverless v2 최적화 설정
-	sqlDB.SetMaxIdleConns(10)               // 유휴 연결 수
-	sqlDB.SetMaxOpenConns(100)              // 최대 연결 수
-	sqlDB.SetConnMaxLifetime(time.Hour)     // 연결 최대 수명
+	sqlDB.SetMaxIdleConns(10)                  // 유휴 연결 수
+	sqlDB.SetMaxOpenConns(100)                 // 최대 연결 수
+	sqlDB.SetConnMaxLifetime(time.Hour)        // 연결 최대 수명
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // 유휴 연결 최대 시간
 
 	// 전역 변수에 저장
@@ -98,6 +98,7 @@ func ConnectDB() (*gorm.DB, error) {
 		&model.CalendarEvent{},
 		&model.EventAttendee{},
 		&model.WorkspaceFile{},
+		&model.Notification{},
 	); err != nil {
 		log.Printf("⚠️ AutoMigrate warning: %v", err)
 	}

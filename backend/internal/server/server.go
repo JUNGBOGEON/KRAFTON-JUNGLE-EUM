@@ -23,19 +23,20 @@ import (
 
 // Server Fiber 서버 래퍼
 type Server struct {
-	app              *fiber.App
-	cfg              *config.Config
-	db               *gorm.DB
-	handler          *handler.AudioHandler
-	authHandler      *handler.AuthHandler
-	userHandler      *handler.UserHandler
-	workspaceHandler *handler.WorkspaceHandler
-	chatHandler      *handler.ChatHandler
-	chatWSHandler    *handler.ChatWSHandler
-	meetingHandler   *handler.MeetingHandler
-	calendarHandler  *handler.CalendarHandler
-	storageHandler   *handler.StorageHandler
-	jwtManager       *auth.JWTManager
+	app                 *fiber.App
+	cfg                 *config.Config
+	db                  *gorm.DB
+	handler             *handler.AudioHandler
+	authHandler         *handler.AuthHandler
+	userHandler         *handler.UserHandler
+	workspaceHandler    *handler.WorkspaceHandler
+	notificationHandler *handler.NotificationHandler
+	chatHandler         *handler.ChatHandler
+	chatWSHandler       *handler.ChatWSHandler
+	meetingHandler      *handler.MeetingHandler
+	calendarHandler     *handler.CalendarHandler
+	storageHandler      *handler.StorageHandler
+	jwtManager          *auth.JWTManager
 }
 
 // New 새 서버 인스턴스 생성
@@ -65,6 +66,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	authHandler := handler.NewAuthHandler(db, jwtManager, googleAuth, cfg.Auth.SecureCookie)
 	userHandler := handler.NewUserHandler(db)
 	workspaceHandler := handler.NewWorkspaceHandler(db)
+	notificationHandler := handler.NewNotificationHandler(db)
 	chatHandler := handler.NewChatHandler(db)
 	chatWSHandler := handler.NewChatWSHandler(db)
 	meetingHandler := handler.NewMeetingHandler(db)
@@ -86,19 +88,20 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	storageHandler := handler.NewStorageHandler(db, s3Service)
 
 	return &Server{
-		app:              app,
-		cfg:              cfg,
-		db:               db,
-		handler:          handler.NewAudioHandler(cfg),
-		authHandler:      authHandler,
-		userHandler:      userHandler,
-		workspaceHandler: workspaceHandler,
-		chatHandler:      chatHandler,
-		chatWSHandler:    chatWSHandler,
-		meetingHandler:   meetingHandler,
-		calendarHandler:  calendarHandler,
-		storageHandler:   storageHandler,
-		jwtManager:       jwtManager,
+		app:                 app,
+		cfg:                 cfg,
+		db:                  db,
+		handler:             handler.NewAudioHandler(cfg),
+		authHandler:         authHandler,
+		userHandler:         userHandler,
+		workspaceHandler:    workspaceHandler,
+		notificationHandler: notificationHandler,
+		chatHandler:         chatHandler,
+		chatWSHandler:       chatWSHandler,
+		meetingHandler:      meetingHandler,
+		calendarHandler:     calendarHandler,
+		storageHandler:      storageHandler,
+		jwtManager:          jwtManager,
 	}
 }
 
@@ -166,6 +169,14 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Get("/", s.workspaceHandler.GetMyWorkspaces)
 	workspaceGroup.Get("/:id", s.workspaceHandler.GetWorkspace)
 	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
+	workspaceGroup.Delete("/:id/leave", s.workspaceHandler.LeaveWorkspace)
+
+	// Notification 라우트 그룹 (인증 필요)
+	notificationGroup := s.app.Group("/api/notifications", auth.AuthMiddleware(s.jwtManager))
+	notificationGroup.Get("", s.notificationHandler.GetMyNotifications)
+	notificationGroup.Post("/:id/accept", s.notificationHandler.AcceptInvitation)
+	notificationGroup.Post("/:id/decline", s.notificationHandler.DeclineInvitation)
+	notificationGroup.Post("/:id/read", s.notificationHandler.MarkAsRead)
 
 	// Chat 라우트 (워크스페이스 하위)
 	workspaceGroup.Get("/:workspaceId/chats", s.chatHandler.GetWorkspaceChats)

@@ -28,6 +28,7 @@ interface WorkspaceMember {
   id: number;
   user_id: number;
   role_id?: number;
+  status?: string; // PENDING, ACTIVE, LEFT
   joined_at: string;
   user?: UserSearchResult;
 }
@@ -164,6 +165,23 @@ interface FilesResponse {
   breadcrumbs?: WorkspaceFile[];
 }
 
+// 알림 관련 타입
+interface Notification {
+  id: number;
+  type: string;
+  content: string;
+  is_read: boolean;
+  related_type?: string;
+  related_id?: number;
+  created_at: string;
+  sender?: UserSearchResult;
+}
+
+interface NotificationsResponse {
+  notifications: Notification[];
+  total: number;
+}
+
 // HTTP-only 쿠키 기반 인증 (XSS 방지)
 class ApiClient {
   private isLoggedIn: boolean = false;
@@ -296,6 +314,13 @@ class ApiClient {
     return this.request(`/api/workspaces/${workspaceId}/members`, {
       method: 'POST',
       body: JSON.stringify({ member_ids: memberIds }),
+    });
+  }
+
+  // 워크스페이스 나가기
+  async leaveWorkspace(workspaceId: number): Promise<{ message: string }> {
+    return this.request(`/api/workspaces/${workspaceId}/leave`, {
+      method: 'DELETE',
     });
   }
 
@@ -466,6 +491,29 @@ class ApiClient {
       throw new Error('Failed to upload file to S3');
     }
   }
+
+  // ========== 알림 API ==========
+  async getMyNotifications(): Promise<NotificationsResponse> {
+    return this.request<NotificationsResponse>('/api/notifications');
+  }
+
+  async acceptInvitation(notificationId: number): Promise<{ message: string; workspace_id: number }> {
+    return this.request(`/api/notifications/${notificationId}/accept`, {
+      method: 'POST',
+    });
+  }
+
+  async declineInvitation(notificationId: number): Promise<{ message: string }> {
+    return this.request(`/api/notifications/${notificationId}/decline`, {
+      method: 'POST',
+    });
+  }
+
+  async markNotificationAsRead(notificationId: number): Promise<{ message: string }> {
+    return this.request(`/api/notifications/${notificationId}/read`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const apiClient = new ApiClient();
@@ -493,4 +541,7 @@ export type {
   // Storage
   WorkspaceFile,
   FilesResponse,
+  // Notification
+  Notification,
+  NotificationsResponse,
 };

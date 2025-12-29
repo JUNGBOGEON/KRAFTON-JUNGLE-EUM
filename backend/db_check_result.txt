@@ -1,0 +1,27 @@
+??Connected to database
+
+?뱤 Status column exists: true
+
+?뱥 Column Information:
+  - Name: status
+  - Type: character varying
+  - Default: 'ACTIVE'::character varying
+  - Nullable: YES
+
+?뱢 Member Status Statistics:
+  - Total members: 23
+  - ACTIVE: 23
+  - PENDING: 0
+  - NULL: 0
+
+?뫁 Recent Members (last 10):
+  - ID: 23, Workspace: 13, User: 8, Status: ACTIVE
+  - ID: 22, Workspace: 13, User: 7, Status: ACTIVE
+  - ID: 21, Workspace: 12, User: 7, Status: ACTIVE
+  - ID: 20, Workspace: 12, User: 8, Status: ACTIVE
+  - ID: 19, Workspace: 11, User: 7, Status: ACTIVE
+  - ID: 18, Workspace: 11, User: 8, Status: ACTIVE
+  - ID: 17, Workspace: 10, User: 8, Status: ACTIVE
+  - ID: 16, Workspace: 10, User: 7, Status: ACTIVE
+  - ID: 15, Workspace: 9, User: 6, Status: ACTIVE
+  - ID: 14, Workspace: 9, User: 7, Status: ACTIVE

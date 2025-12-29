@@ -79,6 +79,7 @@ type WorkspaceMember struct {
 	WorkspaceID int64     `gorm:"not null" json:"workspace_id"`
 	UserID      int64     `gorm:"not null" json:"user_id"`
 	RoleID      *int64    `json:"role_id,omitempty"`
+	Status      string    `gorm:"type:varchar(20);default:'ACTIVE'" json:"status"` // PENDING, ACTIVE, LEFT
 	JoinedAt    time.Time `gorm:"autoCreateTime" json:"joined_at"`
 
 	// Relations
@@ -120,7 +121,7 @@ func (Meeting) TableName() string {
 type Participant struct {
 	ID        int64      `gorm:"primaryKey;autoIncrement" json:"id"`
 	MeetingID int64      `gorm:"not null" json:"meeting_id"`
-	UserID    *int64     `json:"user_id,omitempty"` // 비회원 허용
+	UserID    *int64     `json:"user_id,omitempty"`                     // 비회원 허용
 	Role      string     `gorm:"type:varchar(20);not null" json:"role"` // HOST, PRESENTER, GUEST
 	JoinedAt  time.Time  `gorm:"autoCreateTime" json:"joined_at"`
 	LeftAt    *time.Time `json:"left_at,omitempty"`
@@ -226,11 +227,11 @@ type WorkspaceFile struct {
 	CreatedAt        time.Time `gorm:"autoCreateTime" json:"created_at"`
 
 	// Relations
-	Workspace      Workspace      `gorm:"foreignKey:WorkspaceID" json:"workspace,omitempty"`
-	Uploader       *User          `gorm:"foreignKey:UploaderID" json:"uploader,omitempty"`
-	ParentFolder   *WorkspaceFile `gorm:"foreignKey:ParentFolderID" json:"parent_folder,omitempty"`
+	Workspace      Workspace       `gorm:"foreignKey:WorkspaceID" json:"workspace,omitempty"`
+	Uploader       *User           `gorm:"foreignKey:UploaderID" json:"uploader,omitempty"`
+	ParentFolder   *WorkspaceFile  `gorm:"foreignKey:ParentFolderID" json:"parent_folder,omitempty"`
 	Children       []WorkspaceFile `gorm:"foreignKey:ParentFolderID" json:"children,omitempty"`
-	RelatedMeeting *Meeting       `gorm:"foreignKey:RelatedMeetingID" json:"related_meeting,omitempty"`
+	RelatedMeeting *Meeting        `gorm:"foreignKey:RelatedMeetingID" json:"related_meeting,omitempty"`
 }
 
 func (WorkspaceFile) TableName() string {
