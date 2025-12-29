@@ -7,6 +7,34 @@ interface StorageSectionProps {
   workspaceId: number;
 }
 
+// 폴더 업로드용 속성 타입 확장 및 FileSystemEntry 타입 정의
+declare module "react" {
+  interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
+    webkitdirectory?: string;
+    directory?: string;
+  }
+}
+
+// FileSystem API Types (Simplified)
+interface FileSystemEntry {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  fullPath: string;
+}
+
+interface FileSystemFileEntry extends FileSystemEntry {
+  file: (callback: (file: File) => void) => void;
+}
+
+interface FileSystemDirectoryEntry extends FileSystemEntry {
+  createReader: () => FileSystemDirectoryReader;
+}
+
+interface FileSystemDirectoryReader {
+  readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
+}
+
 const getFileIcon = (file: WorkspaceFile) => {
   if (file.type === "FOLDER") {
     return (
@@ -81,20 +109,27 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
   const [renameTarget, setRenameTarget] = useState<WorkspaceFile | null>(null);
   const [newName, setNewName] = useState("");
 
+  // New Dropdown State
+  const [showNewDropdown, setShowNewDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Drag & Drop State
+  const [isDragging, setIsDragging] = useState(false);
+
   // 파일 업로드 상태
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState<string>("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const loadFiles = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await apiClient.getWorkspaceFiles(workspaceId, currentFolderId);
       setFiles(response.files);
-      if (response.breadcrumbs) {
-        setBreadcrumbs(response.breadcrumbs);
-      }
+      setBreadcrumbs(response.breadcrumbs || []);
     } catch (error) {
       console.error("Failed to load files:", error);
     } finally {
@@ -106,6 +141,16 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
     loadFiles();
   }, [loadFiles]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowNewDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const filteredFiles = files.filter((file) =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -116,12 +161,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
       setSelectedFile(null);
     } else {
       setSelectedFile(file);
-      // 파일 다운로드
       try {
         const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
         window.open(url, "_blank");
       } catch (error) {
-        // S3가 설정되지 않은 경우 기존 URL 사용
         if (file.file_url) {
           window.open(file.file_url, "_blank");
         }
@@ -187,61 +230,194 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
     }
   };
 
-  // 파일 업로드 핸들러
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = event.target.files;
-    if (!selectedFiles || selectedFiles.length === 0) return;
+  // --- 업로드 로직 통합 ---
+
+  const uploadSingleFile = async (file: File, parentId?: number) => {
+    // 1. Presigned URL 얻기
+    const presigned = await apiClient.getPresignedURL(
+      workspaceId,
+      file.name,
+      file.type || "application/octet-stream",
+      parentId
+    );
+
+    // 2. S3에 직접 업로드
+    await apiClient.uploadFileToS3(presigned.upload_url, file);
+
+    // 3. 업로드 확인 및 DB 저장
+    const uploadedFile = await apiClient.confirmUpload(workspaceId, {
+      name: file.name,
+      key: presigned.key,
+      file_size: file.size,
+      mime_type: file.type || "application/octet-stream",
+      parent_folder_id: parentId,
+    });
+
+    return uploadedFile;
+  };
+
+  // 파일 + 경로(폴더 구조) 처리 및 업로드 실행
+  const processAndUploadFiles = async (fileList: Array<{ file: File, path: string }>) => {
+    if (fileList.length === 0) return;
 
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadStatus("폴더 구조 분석 중...");
     setUploadError(null);
+    setShowNewDropdown(false);
 
     try {
-      const totalFiles = selectedFiles.length;
+      const totalFiles = fileList.length;
       let uploadedCount = 0;
 
-      for (const file of Array.from(selectedFiles)) {
-        // 1. Presigned URL 얻기
-        const presigned = await apiClient.getPresignedURL(
-          workspaceId,
-          file.name,
-          file.type || "application/octet-stream",
-          currentFolderId
-        );
+      // 폴더 경로 캐시 (경로 문자열 -> 폴더 ID)
+      const folderPathMap = new Map<string, number>();
 
-        // 2. S3에 직접 업로드
-        await apiClient.uploadFileToS3(presigned.upload_url, file);
+      for (const { file, path } of fileList) {
+        // path: "Folder/SubFolder/file.txt" or "file.txt"
+        // mac/linux separator "/"
+        const pathParts = path.split('/').filter(p => p !== "."); // "." 은 현재 경로
 
-        // 3. 업로드 확인 및 DB 저장
-        const uploadedFile = await apiClient.confirmUpload(workspaceId, {
-          name: file.name,
-          key: presigned.key,
-          file_size: file.size,
-          mime_type: file.type || "application/octet-stream",
-          parent_folder_id: currentFolderId,
-        });
+        // 마지막 요소(파일명) 제외한 경로 처리
+        let parentId = currentFolderId;
+        let currentPath = "";
 
-        // 파일 목록에 추가
-        setFiles((prev) => [uploadedFile, ...prev]);
+        // 폴더 구조 생성
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          const folderName = pathParts[i];
+          if (!folderName) continue;
+
+          currentPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+
+          if (folderPathMap.has(currentPath)) {
+            parentId = folderPathMap.get(currentPath);
+          } else {
+            setUploadStatus(`폴더 생성 중: ${folderName}`);
+            // 폴더 생성 - 실제로는 생성 전 DB 체크가 좋지만 API 제약상 create 호출 (이름 중복 시 허용됨)
+            const newFolder = await apiClient.createFolder(workspaceId, folderName, parentId);
+            parentId = newFolder.id;
+            folderPathMap.set(currentPath, parentId);
+
+            // 현재 폴더에 생성된 경우 목록 즉시 반영
+            if (newFolder.parent_folder_id === currentFolderId) {
+              setFiles(prev => [newFolder, ...prev]);
+            }
+          }
+        }
+
+        // 파일 업로드
+        setUploadStatus(`업로드 중: ${file.name}`);
+        const uploadedFile = await uploadSingleFile(file, parentId);
+
+        if (uploadedFile.parent_folder_id === currentFolderId) {
+          setFiles((prev) => [uploadedFile, ...prev]);
+        }
 
         uploadedCount++;
         setUploadProgress(Math.round((uploadedCount / totalFiles) * 100));
       }
+
+      loadFiles();
+
     } catch (error) {
-      console.error("Failed to upload file:", error);
-      setUploadError("파일 업로드에 실패했습니다. 다시 시도해주세요.");
+      console.error("Failed to upload:", error);
+      setUploadError("업로드 중 오류가 발생했습니다.");
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
-      // 입력 초기화
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      setUploadStatus("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files;
+    if (!selectedFiles) return;
+    const fileList = Array.from(selectedFiles).map(file => ({ file, path: file.name }));
+    processAndUploadFiles(fileList);
+  };
+
+  const handleFolderUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files;
+    if (!selectedFiles) return;
+    const fileList = Array.from(selectedFiles).map(file => ({ file, path: file.webkitRelativePath || file.name }));
+    processAndUploadFiles(fileList);
+  };
+
+  // --- Drag & Drop Logic ---
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 드래그가 자식 요소로 들어갔을 때 leave가 트리거되는 것 방지
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const items = e.dataTransfer.items;
+    if (!items) return;
+
+    const fileList: Array<{ file: File, path: string }> = [];
+
+    // 스캔 큐 (비동기 처리)
+    const scanEntry = (entry: FileSystemEntry) => {
+      return new Promise<void>((resolve) => {
+        if (entry.isFile) {
+          (entry as FileSystemFileEntry).file((file) => {
+            // fullPath는 "/folder/file.txt" 형태. 맨 앞 slash 제거
+            const path = entry.fullPath.startsWith('/') ? entry.fullPath.slice(1) : entry.fullPath;
+            fileList.push({ file, path });
+            resolve();
+          });
+        } else if (entry.isDirectory) {
+          const dirReader = (entry as FileSystemDirectoryEntry).createReader();
+          dirReader.readEntries(async (entries) => {
+            for (const childEntry of entries) {
+              await scanEntry(childEntry); // 재귀 호출
+            }
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      });
+    };
+
+    setUploadStatus("파일 목록 스캔 중...");
+
+    // 모든 아이템 스캔
+    const promises = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        // @ts-ignore - webkitGetAsEntry is non-standard but widely supported
+        const entry = item.webkitGetAsEntry?.();
+        if (entry) {
+          promises.push(scanEntry(entry));
+        } else {
+          // fallback for non-webkit
+          const file = item.getAsFile();
+          if (file) {
+            fileList.push({ file, path: file.name });
+          }
+        }
+      }
+    }
+
+    await Promise.all(promises);
+    processAndUploadFiles(fileList);
   };
 
   if (isLoading) {
@@ -253,14 +429,40 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Hidden file input */}
+    <div
+      className="h-full flex flex-col relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-black/5 border-2 border-dashed border-black/30 z-50 flex items-center justify-center rounded-xl pointer-events-none backdrop-blur-[1px]">
+          <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex flex-col items-center animate-bounce">
+            <svg className="w-10 h-10 text-black mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p className="font-semibold text-lg text-black">여기에 파일을 놓으세요</p>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden inputs */}
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
         className="hidden"
         multiple
+      />
+      <input
+        type="file"
+        ref={folderInputRef}
+        onChange={handleFolderUpload}
+        className="hidden"
+        // @ts-ignore
+        webkitdirectory="true"
+        directory="true"
       />
 
       {/* Header */}
@@ -270,42 +472,76 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
             <h1 className="text-xl font-semibold text-black">저장소</h1>
             <p className="text-sm text-black/40 mt-0.5">문서, 회의록, 리소스 관리</p>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* New Button Dropdown */}
+          <div className="relative" ref={dropdownRef}>
             <button
-              onClick={() => setShowCreateFolderModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-black/5 text-black text-sm font-medium rounded-lg hover:bg-black/10 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
-              </svg>
-              새 폴더
-            </button>
-            <button
-              onClick={triggerFileInput}
+              onClick={() => setShowNewDropdown(!showNewDropdown)}
               disabled={isUploading}
-              className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors disabled:opacity-50"
+              className={`flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors disabled:opacity-50 ${showNewDropdown ? 'bg-black/80 ring-2 ring-black/20' : ''}`}
             >
               {isUploading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  업로드 중... {uploadProgress}%
+                  {uploadStatus || `${uploadProgress}%`}
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
-                  파일 업로드
+                  새로 만들기
+                  <svg className={`w-3 h-3 transition-transform ${showNewDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </>
               )}
             </button>
+
+            {/* Dropdown Menu */}
+            {showNewDropdown && !isUploading && (
+              <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-black/5 py-2 z-50 transform origin-top-right transition-all">
+                <button
+                  onClick={() => {
+                    setShowCreateFolderModal(true);
+                    setShowNewDropdown(false);
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                  </svg>
+                  새 폴더
+                </button>
+                <div className="my-1 border-t border-black/5" />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  파일 업로드
+                </button>
+                <button
+                  onClick={() => folderInputRef.current?.click()}
+                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M2.166 6.834A2 2 0 0 1 4 5h8a1 1 0 0 1 1 1v1h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6.834Z" opacity="0.5" />
+                    <path d="M4 9h16v10H4V9Z" />
+                  </svg>
+                  폴더 업로드
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Upload Error */}
         {uploadError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-            {uploadError}
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 flex items-center justify-between shadow-sm">
+            <span>{uploadError}</span>
             <button
               onClick={() => setUploadError(null)}
               className="ml-2 text-red-400 hover:text-red-600"
@@ -323,7 +559,7 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
               placeholder="파일 검색..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-black/[0.03] border-0 rounded-lg text-sm placeholder:text-black/30 focus:outline-none focus:ring-2 focus:ring-black/10"
+              className="w-full pl-10 pr-4 py-2.5 bg-black/[0.03] border-0 rounded-lg text-sm placeholder:text-black/30 focus:outline-none focus:ring-2 focus:ring-black/10 transition-all"
             />
             <svg
               className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black/30"
@@ -337,11 +573,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
           <div className="flex items-center bg-black/[0.03] rounded-lg p-1">
             <button
               onClick={() => setViewMode("list")}
-              className={`p-2 rounded-md transition-all ${
-                viewMode === "list"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-black/50 hover:text-black/70"
-              }`}
+              className={`p-2 rounded-md transition-all ${viewMode === "list"
+                ? "bg-white text-black shadow-sm"
+                : "text-black/50 hover:text-black/70"
+                }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
@@ -349,11 +584,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
             </button>
             <button
               onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-md transition-all ${
-                viewMode === "grid"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-black/50 hover:text-black/70"
-              }`}
+              className={`p-2 rounded-md transition-all ${viewMode === "grid"
+                ? "bg-white text-black shadow-sm"
+                : "text-black/50 hover:text-black/70"
+                }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -366,9 +600,8 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
         <div className="flex items-center gap-1 mt-4 text-sm">
           <button
             onClick={() => handleBreadcrumbClick(undefined)}
-            className={`transition-colors ${
-              !currentFolderId ? "text-black font-medium" : "text-black/50 hover:text-black"
-            }`}
+            className={`transition-colors ${!currentFolderId ? "text-black font-medium" : "text-black/50 hover:text-black"
+              }`}
           >
             저장소
           </button>
@@ -379,11 +612,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
               </svg>
               <button
                 onClick={() => handleBreadcrumbClick(folder.id)}
-                className={`${
-                  index === breadcrumbs.length - 1
-                    ? "text-black font-medium"
-                    : "text-black/50 hover:text-black"
-                } transition-colors`}
+                className={`${index === breadcrumbs.length - 1
+                  ? "text-black font-medium"
+                  : "text-black/50 hover:text-black"
+                  } transition-colors`}
               >
                 {folder.name}
               </button>
@@ -399,11 +631,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
             {filteredFiles.map((file) => (
               <div
                 key={file.id}
-                className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all text-left group ${
-                  selectedFile?.id === file.id
-                    ? "bg-black/5"
-                    : "hover:bg-black/[0.02]"
-                }`}
+                className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all text-left group ${selectedFile?.id === file.id
+                  ? "bg-black/5"
+                  : "hover:bg-black/[0.02]"
+                  }`}
               >
                 <button
                   onClick={() => handleFileClick(file)}
@@ -445,11 +676,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
             {filteredFiles.map((file) => (
               <div
                 key={file.id}
-                className={`p-4 rounded-xl transition-all text-left group relative ${
-                  selectedFile?.id === file.id
-                    ? "bg-black/5 ring-2 ring-black/10"
-                    : "bg-black/[0.02] hover:bg-black/[0.04]"
-                }`}
+                className={`p-4 rounded-xl transition-all text-left group relative ${selectedFile?.id === file.id
+                  ? "bg-black/5 ring-2 ring-black/10"
+                  : "bg-black/[0.02] hover:bg-black/[0.04]"
+                  }`}
               >
                 <button
                   onClick={() => handleFileClick(file)}
@@ -497,47 +727,24 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
             <p className="text-sm text-black/40 mb-4">
               {searchQuery
                 ? "다른 검색어로 시도해보세요"
-                : "파일을 업로드하여 팀과 공유하세요"}
+                : "파일을 드래그해서 업로드하거나 새로 만들기 버튼을 누르세요"}
             </p>
             {!searchQuery && (
               <button
-                onClick={triggerFileInput}
+                onClick={() => setShowNewDropdown(true)}
                 className="px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors"
               >
-                파일 업로드
+                + 새로 만들기
               </button>
             )}
           </div>
         )}
       </div>
 
-      {/* Quick Actions */}
-      <div className="px-6 py-4 border-t border-black/5 flex items-center gap-3">
-        <button
-          onClick={triggerFileInput}
-          disabled={isUploading}
-          className="flex-1 py-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/20 hover:text-black/60 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          <span className="text-sm font-medium">파일 업로드</span>
-        </button>
-        <button
-          onClick={() => setShowCreateFolderModal(true)}
-          className="flex-1 py-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/20 hover:text-black/60 transition-colors flex items-center justify-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
-          </svg>
-          <span className="text-sm font-medium">새 폴더</span>
-        </button>
-      </div>
-
       {/* Create Folder Modal */}
       {showCreateFolderModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl transform transition-all">
             <h2 className="text-xl font-semibold text-black mb-4">새 폴더 만들기</h2>
             <input
               type="text"
@@ -554,7 +761,7 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
                   setShowCreateFolderModal(false);
                   setNewFolderName("");
                 }}
-                className="flex-1 py-3 text-black/60 hover:text-black transition-colors"
+                className="flex-1 py-3 text-black/60 hover:text-black transition-colors rounded-lg hover:bg-black/5"
               >
                 취소
               </button>
@@ -573,7 +780,7 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
       {/* Rename Modal */}
       {showRenameModal && renameTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <h2 className="text-xl font-semibold text-black mb-4">이름 변경</h2>
             <input
               type="text"
@@ -591,7 +798,7 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
                   setRenameTarget(null);
                   setNewName("");
                 }}
-                className="flex-1 py-3 text-black/60 hover:text-black transition-colors"
+                className="flex-1 py-3 text-black/60 hover:text-black transition-colors rounded-lg hover:bg-black/5"
               >
                 취소
               </button>
