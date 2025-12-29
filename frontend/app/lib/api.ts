@@ -28,7 +28,6 @@ interface WorkspaceMember {
   id: number;
   user_id: number;
   role_id?: number;
-  status?: string; // PENDING, ACTIVE, LEFT
   joined_at: string;
   user?: UserSearchResult;
 }
@@ -352,13 +351,6 @@ class ApiClient {
     });
   }
 
-  // 워크스페이스 나가기
-  async leaveWorkspace(workspaceId: number): Promise<{ message: string }> {
-    return this.request(`/api/workspaces/${workspaceId}/leave`, {
-      method: 'DELETE',
-    });
-  }
-
   // ========== 채팅 API ==========
   async getWorkspaceChats(workspaceId: number, limit = 50, offset = 0): Promise<ChatsResponse> {
     return this.request<ChatsResponse>(
@@ -638,7 +630,4 @@ export type {
   // Storage
   WorkspaceFile,
   FilesResponse,
-  // Notification
-  Notification,
-  NotificationsResponse,
 };

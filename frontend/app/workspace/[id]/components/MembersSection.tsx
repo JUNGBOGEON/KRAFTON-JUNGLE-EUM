@@ -2,12 +2,9 @@
 
 import { useState } from "react";
 import { Workspace } from "../../../lib/api";
-import { filterActiveMembers } from "../../../lib/utils";
-import InviteMemberModal from "./InviteMemberModal";
 
 interface MembersSectionProps {
   workspace: Workspace;
-  onMembersUpdate?: () => void;
 }
 
 const roleLabels: Record<string, string> = {
@@ -16,12 +13,11 @@ const roleLabels: Record<string, string> = {
   member: "멤버",
 };
 
-export default function MembersSection({ workspace, onMembersUpdate }: MembersSectionProps) {
+export default function MembersSection({ workspace }: MembersSectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [showInviteModal, setShowInviteModal] = useState(false);
 
-  // 워크스페이스 멤버 목록 변환 (ACTIVE 멤버만 표시)
-  const members = filterActiveMembers(workspace.members || []).map((m) => ({
+  // 워크스페이스 멤버 목록 변환
+  const members = (workspace.members || []).map((m) => ({
     id: m.id,
     userId: m.user_id,
     name: m.user?.nickname || "알 수 없음",
@@ -45,13 +41,6 @@ export default function MembersSection({ workspace, onMembersUpdate }: MembersSe
     return 0;
   });
 
-  const handleInviteSuccess = () => {
-    // 멤버 목록 새로고침
-    if (onMembersUpdate) {
-      onMembersUpdate();
-    }
-  };
-
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -63,11 +52,7 @@ export default function MembersSection({ workspace, onMembersUpdate }: MembersSe
               {members.length}명의 멤버
             </p>
           </div>
-          <button
-            onClick={() => setShowInviteModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors"
-          >
-
+          <button className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
@@ -161,16 +146,6 @@ export default function MembersSection({ workspace, onMembersUpdate }: MembersSe
           )}
         </div>
       </div>
-
-      {/* Invite Modal */}
-      <InviteMemberModal
-        workspaceId={workspace.id}
-        workspaceName={workspace.name}
-        currentMembers={members.map(m => m.userId)}
-        isOpen={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
-        onSuccess={handleInviteSuccess}
-      />
     </div>
   );
 }

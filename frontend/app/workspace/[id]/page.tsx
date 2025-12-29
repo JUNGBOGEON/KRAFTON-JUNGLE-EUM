@@ -10,7 +10,6 @@ import ChatSection from "./components/ChatSection";
 import CallsSection from "./components/CallsSection";
 import CalendarSection from "./components/CalendarSection";
 import StorageSection from "./components/StorageSection";
-import NotificationDropdown from "../../components/NotificationDropdown";
 
 export default function WorkspaceDetailPage() {
   const router = useRouter();
@@ -104,7 +103,7 @@ export default function WorkspaceDetailPage() {
 
     switch (activeSection) {
       case "members":
-        return <MembersSection workspace={workspace} onMembersUpdate={fetchWorkspace} />;
+        return <MembersSection workspace={workspace} />;
       case "chat":
         // 기본 채팅 섹션 - 채팅방을 선택하라는 메시지 표시
         return (
@@ -122,7 +121,7 @@ export default function WorkspaceDetailPage() {
       case "storage":
         return <StorageSection workspaceId={workspace.id} />;
       default:
-        return <MembersSection workspace={workspace} onMembersUpdate={fetchWorkspace} />;
+        return <MembersSection workspace={workspace} />;
     }
   };
 
