@@ -4,8 +4,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
 import { apiClient, UserSearchResult, Workspace } from "../lib/api";
-import { filterActiveMembers } from "../lib/utils";
-import NotificationDropdown from "../components/NotificationDropdown";
 
 export default function WorkspacePage() {
   const router = useRouter();
@@ -197,7 +195,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
-
+      
       {/* Background Images */}
       <img
         src="/workspace-left-top-background.png"
@@ -216,54 +214,48 @@ export default function WorkspacePage() {
           {/* Logo */}
           <img src="/eum_black.png" alt="EUM" className="h-6" />
 
-          {/* Header Right Section */}
-          <div className="flex items-center gap-3">
-            {/* Notification Button */}
-            <NotificationDropdown onInvitationAccepted={() => fetchWorkspaces()} />
-
-            {/* Profile */}
-            <div className="relative">
-              <button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="flex items-center gap-3 hover:opacity-70 transition-opacity"
-              >
-                {user.profileImg ? (
-                  <img
-                    src={user.profileImg}
-                    alt={user.nickname}
-                    className="w-9 h-9 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center">
-                    <span className="text-sm font-medium text-white">
-                      {user.nickname.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
-              </button>
-
-              {/* Profile Dropdown */}
-              {showProfileMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowProfileMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-64 bg-white border border-black/10 shadow-lg z-20">
-                    <div className="p-4 border-b border-black/5">
-                      <p className="font-medium text-black">{user.nickname}</p>
-                      <p className="text-sm text-black/50 mt-0.5">{user.email}</p>
-                    </div>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full px-4 py-3 text-left text-sm text-black/70 hover:bg-black/5 transition-colors"
-                    >
-                      로그아웃
-                    </button>
-                  </div>
-                </>
+          {/* Profile */}
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              className="flex items-center gap-3 hover:opacity-70 transition-opacity"
+            >
+              {user.profileImg ? (
+                <img
+                  src={user.profileImg}
+                  alt={user.nickname}
+                  className="w-9 h-9 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center">
+                  <span className="text-sm font-medium text-white">
+                    {user.nickname.charAt(0).toUpperCase()}
+                  </span>
+                </div>
               )}
-            </div>
+            </button>
+
+            {/* Profile Dropdown */}
+            {showProfileMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowProfileMenu(false)}
+                />
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-black/10 shadow-lg z-20">
+                  <div className="p-4 border-b border-black/5">
+                    <p className="font-medium text-black">{user.nickname}</p>
+                    <p className="text-sm text-black/50 mt-0.5">{user.email}</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-3 text-left text-sm text-black/70 hover:bg-black/5 transition-colors"
+                  >
+                    로그아웃
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -343,99 +335,98 @@ export default function WorkspacePage() {
                   </span>
                 </button>
 
-                {/* Workspace Cards */}
-                {workspaces.map((workspace) => {
-                  // ACTIVE 멤버만 필터링
-                  const activeMembers = filterActiveMembers(workspace.members || []);
-                  const displayMembers = activeMembers.slice(0, 4);
-                  const remainingCount = activeMembers.length - 4;
+              {/* Workspace Cards */}
+              {workspaces.map((workspace) => {
+                const members = workspace.members || [];
+                const displayMembers = members.slice(0, 4);
+                const remainingCount = members.length - 4;
 
-                  // 상대적 시간 계산
-                  const getRelativeTime = (dateString: string) => {
-                    const date = new Date(dateString);
-                    const now = new Date();
-                    const diffMs = now.getTime() - date.getTime();
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffHours = Math.floor(diffMins / 60);
-                    const diffDays = Math.floor(diffHours / 24);
+                // 상대적 시간 계산
+                const getRelativeTime = (dateString: string) => {
+                  const date = new Date(dateString);
+                  const now = new Date();
+                  const diffMs = now.getTime() - date.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  const diffHours = Math.floor(diffMins / 60);
+                  const diffDays = Math.floor(diffHours / 24);
 
-                    if (diffMins < 1) return "방금 전";
-                    if (diffMins < 60) return `${diffMins}분 전`;
-                    if (diffHours < 24) return `${diffHours}시간 전`;
-                    if (diffDays < 7) return `${diffDays}일 전`;
-                    return date.toLocaleDateString("ko-KR");
-                  };
+                  if (diffMins < 1) return "방금 전";
+                  if (diffMins < 60) return `${diffMins}분 전`;
+                  if (diffHours < 24) return `${diffHours}시간 전`;
+                  if (diffDays < 7) return `${diffDays}일 전`;
+                  return date.toLocaleDateString("ko-KR");
+                };
 
-                  return (
-                    <button
-                      key={workspace.id}
-                      className="group h-56 border border-black/10 hover:border-black/25 bg-white hover:shadow-lg transition-all duration-300 text-left p-7 flex flex-col justify-between"
-                      onClick={() => router.push(`/workspace/${workspace.id}`)}
-                    >
-                      <div>
-                        <h3 className="text-xl font-medium text-black mb-6">
-                          {workspace.name}
-                        </h3>
+                return (
+                  <button
+                    key={workspace.id}
+                    className="group h-56 border border-black/10 hover:border-black/25 bg-white hover:shadow-lg transition-all duration-300 text-left p-7 flex flex-col justify-between"
+                    onClick={() => router.push(`/workspace/${workspace.id}`)}
+                  >
+                    <div>
+                      <h3 className="text-xl font-medium text-black mb-6">
+                        {workspace.name}
+                      </h3>
 
-                        {/* Member Avatars */}
-                        <div className="flex items-center">
-                          <div className="flex -space-x-2">
-                            {displayMembers.map((member, index) => (
-                              <div
-                                key={member.id}
-                                className="w-8 h-8 rounded-full border-2 border-white bg-black/10 flex items-center justify-center"
-                                style={{ zIndex: displayMembers.length - index }}
-                              >
-                                {member.user?.profile_img ? (
-                                  <img
-                                    src={member.user.profile_img}
-                                    alt={member.user.nickname}
-                                    className="w-full h-full rounded-full object-cover"
-                                  />
-                                ) : (
-                                  <span className="text-xs font-medium text-black/50">
-                                    {member.user?.nickname?.charAt(0) || "?"}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                            {remainingCount > 0 && (
-                              <div
-                                className="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center"
-                                style={{ zIndex: 0 }}
-                              >
-                                <span className="text-xs font-medium text-white">
-                                  +{remainingCount}
+                      {/* Member Avatars */}
+                      <div className="flex items-center">
+                        <div className="flex -space-x-2">
+                          {displayMembers.map((member, index) => (
+                            <div
+                              key={member.id}
+                              className="w-8 h-8 rounded-full border-2 border-white bg-black/10 flex items-center justify-center"
+                              style={{ zIndex: displayMembers.length - index }}
+                            >
+                              {member.user?.profile_img ? (
+                                <img
+                                  src={member.user.profile_img}
+                                  alt={member.user.nickname}
+                                  className="w-full h-full rounded-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-xs font-medium text-black/50">
+                                  {member.user?.nickname?.charAt(0) || "?"}
                                 </span>
-                              </div>
-                            )}
-                          </div>
+                              )}
+                            </div>
+                          ))}
+                          {remainingCount > 0 && (
+                            <div
+                              className="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center"
+                              style={{ zIndex: 0 }}
+                            >
+                              <span className="text-xs font-medium text-white">
+                                +{remainingCount}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
+                    </div>
 
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-black/30">
-                          {getRelativeTime(workspace.created_at)}
-                        </span>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center group-hover:bg-black/5 transition-colors duration-300">
-                          <svg
-                            className="w-4 h-4 text-black/25 group-hover:text-black/50 group-hover:translate-x-0.5 transition-all duration-300"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
-                        </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-black/30">
+                        {getRelativeTime(workspace.created_at)}
+                      </span>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center group-hover:bg-black/5 transition-colors duration-300">
+                        <svg
+                          className="w-4 h-4 text-black/25 group-hover:text-black/50 group-hover:translate-x-0.5 transition-all duration-300"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
                       </div>
-                    </button>
-                  );
-                })}
+                    </div>
+                  </button>
+                );
+              })}
               </div>
             )}
           </section>
@@ -444,12 +435,13 @@ export default function WorkspacePage() {
 
       {/* New Workspace Modal - 항상 렌더링하여 비디오 프리로드 */}
       <div
-        className={`fixed inset-0 z-[100] flex transition-all duration-1000 ${showNewWorkspace
-          ? isClosingModal
-            ? 'translate-y-full'
-            : 'translate-y-0'
-          : 'translate-y-full pointer-events-none'
-          }`}
+        className={`fixed inset-0 z-[100] flex transition-all duration-1000 ${
+          showNewWorkspace
+            ? isClosingModal
+              ? 'translate-y-full'
+              : 'translate-y-0'
+            : 'translate-y-full pointer-events-none'
+        }`}
         style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
       >
         {/* Left Side - Background Video */}
@@ -496,7 +488,7 @@ export default function WorkspacePage() {
             {/* Step 1: 워크스페이스 이름 */}
             {createStep === 1 && (
               <>
-                <p className="text-xs text-black/60 uppercase tracking-[0.2em] mb-2">
+                <p className="text-xs text-black/30 uppercase tracking-[0.2em] mb-2">
                   STEP 1
                 </p>
                 <h2 className="text-2xl font-medium text-black mb-8">
@@ -510,7 +502,7 @@ export default function WorkspacePage() {
                       value={newWorkspaceName}
                       onChange={(e) => setNewWorkspaceName(e.target.value)}
                       placeholder="이름 입력"
-                      className="no-focus-outline w-full py-3 text-lg text-black border-x-0 border-t-0 border-b border-black/10 bg-transparent placeholder:text-black/50"
+                      className="no-focus-outline w-full py-3 text-lg text-black border-x-0 border-t-0 border-b border-black/10 bg-transparent placeholder:text-black/20"
                       autoFocus
                     />
                   </div>
@@ -519,16 +511,18 @@ export default function WorkspacePage() {
                   <button
                     onClick={handleNextStep}
                     disabled={!newWorkspaceName.trim()}
-                    className={`group flex items-center gap-3 transition-all duration-300 ${newWorkspaceName.trim()
-                      ? 'text-black cursor-pointer'
-                      : 'text-black/40 cursor-not-allowed'
-                      }`}
+                    className={`group flex items-center gap-3 transition-all duration-300 ${
+                      newWorkspaceName.trim()
+                        ? 'text-black cursor-pointer'
+                        : 'text-black/20 cursor-not-allowed'
+                    }`}
                   >
                     <span className="text-sm font-medium tracking-wide">다음</span>
-                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-300 ${newWorkspaceName.trim()
-                      ? 'border-black group-hover:bg-black group-hover:text-white'
-                      : 'border-black/40'
-                      }`}>
+                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-300 ${
+                      newWorkspaceName.trim()
+                        ? 'border-black group-hover:bg-black group-hover:text-white'
+                        : 'border-black/20'
+                    }`}>
                       <svg
                         className={`w-4 h-4 transition-transform duration-300 ${newWorkspaceName.trim() ? 'group-hover:translate-x-0.5' : ''}`}
                         fill="none"
@@ -551,13 +545,13 @@ export default function WorkspacePage() {
             {/* Step 2: 멤버 초대 */}
             {createStep === 2 && (
               <>
-                <p className="text-xs text-black/60 uppercase tracking-[0.2em] mb-2">
+                <p className="text-xs text-black/30 uppercase tracking-[0.2em] mb-2">
                   STEP 2
                 </p>
                 <h2 className="text-2xl font-medium text-black mb-2">
                   멤버 초대
                 </h2>
-                <p className="text-sm text-black/60 mb-6">
+                <p className="text-sm text-black/40 mb-6">
                   이름 또는 이메일로 검색하세요
                 </p>
 
