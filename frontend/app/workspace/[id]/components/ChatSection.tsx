@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { apiClient, ChatMessage, ChatRoom } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth-context";
 
@@ -26,6 +28,12 @@ interface WSMessage {
   };
 }
 
+interface ContextMenu {
+  x: number;
+  y: number;
+  messageId: number;
+}
+
 const WS_BASE_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'ws://localhost:8080';
 const MESSAGES_PER_PAGE = 30;
 
@@ -49,6 +57,14 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
   // 스크롤 상태
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isMessagesReady, setIsMessagesReady] = useState(false);
+
+  // 메시지 편집/삭제 상태
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [hoveredMessageId, setHoveredMessageId] = useState<number | null>(null);
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [editedMessageIds, setEditedMessageIds] = useState<Set<number>>(new Set());
 
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -127,15 +143,23 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
   const loadMessages = useCallback(async (roomId: number) => {
     try {
       setIsLoadingMessages(true);
+      setIsMessagesReady(false);
       setHasMore(true);
       const response = await apiClient.getChatRoomMessages(workspaceId, roomId, MESSAGES_PER_PAGE, 0);
       setMessages(response.messages);
       setHasMore(response.messages.length >= MESSAGES_PER_PAGE);
 
-      // 초기 로드 후 맨 아래로 스크롤
-      setTimeout(() => scrollToBottom(false), 50);
+      // 초기 로드 후 맨 아래로 스크롤 (즉시, 애니메이션 없이)
+      requestAnimationFrame(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+        // 스크롤 완료 후 메시지 표시
+        setIsMessagesReady(true);
+      });
     } catch (error) {
       console.error("Failed to load messages:", error);
+      setIsMessagesReady(true);
     } finally {
       setIsLoadingMessages(false);
     }
@@ -205,10 +229,12 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
   useEffect(() => {
     if (!selectedRoom) return;
 
+    setIsMessagesReady(false);
     loadMessages(selectedRoom.id);
     setTypingUsers([]);
     setShowScrollToBottom(false);
     setIsAtBottom(true);
+    setEditedMessageIds(new Set());
 
     let isMounted = true;
     let reconnectTimeout: NodeJS.Timeout | null = null;
@@ -281,6 +307,28 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
                 );
               }
               break;
+
+            case "message_update":
+              if (data.payload?.id && data.payload?.message !== undefined) {
+                const msgId = data.payload.id;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === msgId
+                      ? { ...m, message: data.payload?.message || "" }
+                      : m
+                  )
+                );
+                setEditedMessageIds((prev) => new Set(prev).add(msgId));
+              }
+              break;
+
+            case "message_delete":
+              if (data.payload?.id) {
+                setMessages((prev) =>
+                  prev.filter((m) => m.id !== data.payload?.id)
+                );
+              }
+              break;
           }
         } catch (e) {
           console.error("Failed to parse WebSocket message:", e);
@@ -318,6 +366,22 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
       scrollToBottom(true);
     }
   }, [messages, isAtBottom]);
+
+  // Shift 키 상태 감지
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setIsShiftPressed(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setIsShiftPressed(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
 
   const sendTypingStatus = (isTyping: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -399,6 +463,19 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 편집 모드일 때
+    if (editingMessageId) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEditing();
+      } else if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current) {
+        e.preventDefault();
+        saveEdit();
+      }
+      return;
+    }
+
+    // 일반 전송 모드
     if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current) {
       e.preventDefault();
       handleSend();
@@ -425,6 +502,95 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
   const isMyMessage = (msg: ChatMessage) => {
     return msg.sender_id === user?.id;
   };
+
+  // 컨텍스트 메뉴 열기
+  const handleContextMenu = (e: React.MouseEvent, msgId: number) => {
+    e.preventDefault();
+    const msg = messages.find(m => m.id === msgId);
+    if (msg && isMyMessage(msg)) {
+      setContextMenu({ x: e.clientX, y: e.clientY, messageId: msgId });
+    }
+  };
+
+  // 컨텍스트 메뉴 닫기
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // 편집 모드 시작 - 메인 입력창으로 이동
+  const startEditing = (msgId: number) => {
+    const msg = messages.find(m => m.id === msgId);
+    if (msg) {
+      setEditingMessageId(msgId);
+      setMessage(msg.message);
+      setContextMenu(null);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(
+            textareaRef.current.value.length,
+            textareaRef.current.value.length
+          );
+          // 높이 자동 조절
+          textareaRef.current.style.height = 'auto';
+          const maxHeight = 120;
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, maxHeight) + 'px';
+        }
+      }, 0);
+    }
+  };
+
+  // 편집 취소
+  const cancelEditing = () => {
+    setEditingMessageId(null);
+    setMessage("");
+    resetTextareaHeight();
+  };
+
+  // 편집 저장
+  const saveEdit = () => {
+    if (!editingMessageId || !message.trim()) return;
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "message_update",
+          payload: {
+            id: editingMessageId,
+            message: message.trim(),
+          },
+        })
+      );
+    }
+    setEditingMessageId(null);
+    setMessage("");
+    resetTextareaHeight();
+  };
+
+  // 메시지 삭제
+  const deleteMessage = (msgId: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "message_delete",
+          payload: {
+            id: msgId,
+          },
+        })
+      );
+    }
+    setContextMenu(null);
+  };
+
+
+  // 클릭 외부 감지로 컨텍스트 메뉴 닫기
+  useEffect(() => {
+    const handleClick = () => closeContextMenu();
+    if (contextMenu) {
+      document.addEventListener("click", handleClick);
+      return () => document.removeEventListener("click", handleClick);
+    }
+  }, [contextMenu, closeContextMenu]);
 
   if (isLoadingRoom) {
     return (
@@ -466,7 +632,9 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-8 py-6"
+        className={`flex-1 overflow-y-auto px-8 py-6 transition-opacity duration-150 ${
+          isMessagesReady ? "opacity-100" : "opacity-0"
+        }`}
         onScroll={handleScroll}
       >
         {/* Loading More Indicator */}
@@ -502,12 +670,46 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
               const showAvatar =
                 index === 0 || messages[index - 1].sender_id !== msg.sender_id;
               const showName = showAvatar && !isMe;
+              const isHovered = hoveredMessageId === msg.id;
+              const isBeingEdited = editingMessageId === msg.id;
+              // 서버에서 updated_at이 있거나, 로컬에서 편집된 경우 수정됨 표시
+              const wasEdited = msg.updated_at !== undefined || editedMessageIds.has(msg.id);
 
               return (
                 <div
                   key={msg.id}
-                  className={`flex ${isMe ? "justify-end" : "justify-start"}`}
+                  className={`flex ${isMe ? "justify-end" : "justify-start"} group relative`}
+                  onMouseEnter={() => setHoveredMessageId(msg.id)}
+                  onMouseLeave={() => setHoveredMessageId(null)}
+                  onContextMenu={(e) => handleContextMenu(e, msg.id)}
                 >
+                  {/* Quick Action Buttons - Shift + Hover */}
+                  {isMe && isHovered && isShiftPressed && !isBeingEdited && (
+                    <div
+                      className="absolute -top-2 right-0 flex items-center gap-1 z-10"
+                      style={{ transform: 'translateY(-50%)' }}
+                    >
+                      <button
+                        onClick={() => startEditing(msg.id)}
+                        className="p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-black/5 hover:bg-white hover:scale-110 transition-all duration-200"
+                        title="수정"
+                      >
+                        <svg className="w-3.5 h-3.5 text-black/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => deleteMessage(msg.id)}
+                        className="p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-lg border border-black/5 hover:bg-red-50 hover:scale-110 transition-all duration-200 group/delete"
+                        title="삭제"
+                      >
+                        <svg className="w-3.5 h-3.5 text-black/60 group-hover/delete:text-red-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
                   <div className={`flex gap-2 max-w-[40%] ${isMe ? "flex-row-reverse" : ""}`}>
                     {!isMe && (
                       <div className="w-8 flex-shrink-0 self-end">
@@ -535,11 +737,14 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
                           {msg.sender?.nickname || "알 수 없음"}
                         </span>
                       )}
+
                       <div
                         className={`px-4 py-2 ${
                           isMe
                             ? "bg-black text-white"
                             : "bg-gray-100 text-black"
+                        } ${isMe ? "chat-markdown-dark" : "chat-markdown-light"} ${
+                          isBeingEdited ? "ring-2 ring-blue-500/50" : ""
                         }`}
                         style={{
                           borderRadius: isMe
@@ -547,18 +752,111 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
                             : "20px 20px 20px 4px",
                         }}
                       >
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-all">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => (
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap break-all m-0">
+                                {children}
+                              </p>
+                            ),
+                            a: ({ href, children }) => (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`underline ${isMe ? "text-blue-300 hover:text-blue-200" : "text-blue-600 hover:text-blue-800"}`}
+                              >
+                                {children}
+                              </a>
+                            ),
+                            strong: ({ children }) => (
+                              <strong className="font-bold">{children}</strong>
+                            ),
+                            em: ({ children }) => (
+                              <em className="italic">{children}</em>
+                            ),
+                            code: ({ children, className }) => {
+                              const isInline = !className;
+                              return isInline ? (
+                                <code className={`px-1 py-0.5 rounded text-xs font-mono ${isMe ? "bg-white/20" : "bg-black/10"}`}>
+                                  {children}
+                                </code>
+                              ) : (
+                                <code className={`block p-2 rounded text-xs font-mono my-1 overflow-x-auto ${isMe ? "bg-white/10" : "bg-black/5"}`}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                            pre: ({ children }) => (
+                              <pre className="m-0 overflow-x-auto">{children}</pre>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="list-disc list-inside text-sm my-1 space-y-0.5">{children}</ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal list-inside text-sm my-1 space-y-0.5">{children}</ol>
+                            ),
+                            li: ({ children }) => (
+                              <li className="text-sm">{children}</li>
+                            ),
+                            blockquote: ({ children }) => (
+                              <blockquote className={`border-l-2 pl-2 my-1 ${isMe ? "border-white/40 text-white/80" : "border-black/30 text-black/70"}`}>
+                                {children}
+                              </blockquote>
+                            ),
+                            hr: () => (
+                              <hr className={`my-2 border-t ${isMe ? "border-white/20" : "border-black/10"}`} />
+                            ),
+                            del: ({ children }) => (
+                              <del className="line-through opacity-70">{children}</del>
+                            ),
+                          }}
+                        >
                           {msg.message}
-                        </p>
+                        </ReactMarkdown>
                       </div>
-                      <span className="text-[10px] text-black/30 mt-0.5 mx-1">
-                        {formatTime(msg.created_at)}
-                      </span>
+                      <div className="flex items-center gap-1.5 mt-1 mx-1">
+                        <span className="text-xs text-black/50">
+                          {formatTime(msg.created_at)}
+                        </span>
+                        {wasEdited && (
+                          <span className="text-xs text-black/40 italic">(수정됨)</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <div
+            className="fixed bg-white rounded-lg shadow-xl border border-black/10 py-1 z-50 min-w-[120px]"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => startEditing(contextMenu.messageId)}
+              className="w-full px-3 py-2 text-left text-sm text-black/70 hover:bg-gray-100 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              수정
+            </button>
+            <button
+              onClick={() => deleteMessage(contextMenu.messageId)}
+              className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              삭제
+            </button>
           </div>
         )}
       </div>
@@ -594,7 +892,29 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
 
       {/* Input */}
       <div className="px-6 py-4 border-t border-black/5">
-        <div className="flex items-end gap-3 bg-gray-100 rounded-[24px] px-4 py-2 focus-within:bg-gray-50 focus-within:ring-2 focus-within:ring-black/10 transition-all">
+        {/* 편집 모드 표시 */}
+        {editingMessageId && (
+          <div className="flex items-center justify-between mb-2 px-2">
+            <div className="flex items-center gap-2 text-sm text-blue-600">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <span>메시지 수정 중</span>
+            </div>
+            <button
+              onClick={cancelEditing}
+              className="text-sm text-black/40 hover:text-black/70 transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        )}
+
+        <div className={`flex items-end gap-3 rounded-[24px] px-4 py-2 transition-all ${
+          editingMessageId
+            ? "bg-blue-50 ring-2 ring-blue-500/30"
+            : "bg-gray-100 focus-within:bg-gray-50 focus-within:ring-2 focus-within:ring-black/10"
+        }`}>
           <textarea
             ref={textareaRef}
             value={message}
@@ -602,23 +922,29 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
             onKeyDown={handleKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder="메시지 입력..."
+            placeholder={editingMessageId ? "메시지 수정..." : "메시지 입력..."}
             maxLength={2000}
             rows={1}
             className="flex-1 bg-transparent resize-none text-[15px] text-black placeholder:text-black/40 focus:outline-none focus:ring-0 focus:border-0 border-0 outline-none ring-0 py-2 leading-5 overflow-hidden"
             style={{ outline: 'none', boxShadow: 'none' }}
           />
           <button
-            onClick={handleSend}
+            onClick={editingMessageId ? saveEdit : handleSend}
             disabled={!message.trim() || isSending}
             className={`p-2 rounded-full transition-all flex-shrink-0 ${
               message.trim() && !isSending
-                ? "bg-black text-white hover:bg-black/80"
+                ? editingMessageId
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : "bg-black text-white hover:bg-black/80"
                 : "bg-black/10 text-black/30 cursor-not-allowed"
             }`}
           >
             {isSending ? (
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : editingMessageId ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
             ) : (
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
                 <path d="M22 2L11 13" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
@@ -627,6 +953,15 @@ export default function ChatSection({ workspaceId, selectedRoomId }: ChatSection
             )}
           </button>
         </div>
+
+        {/* 편집 모드 힌트 */}
+        {editingMessageId && (
+          <div className="flex items-center gap-2 mt-2 px-2 text-xs text-black/40">
+            <span>ESC로 취소</span>
+            <span>•</span>
+            <span>Enter로 저장</span>
+          </div>
+        )}
       </div>
     </div>
   );

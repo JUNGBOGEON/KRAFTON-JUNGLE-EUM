@@ -28,6 +28,7 @@ type ChatLogResponse struct {
 	Message   string        `json:"message"`
 	Type      string        `json:"type"`
 	CreatedAt string        `json:"created_at"`
+	UpdatedAt *string       `json:"updated_at,omitempty"`
 	Sender    *UserResponse `json:"sender,omitempty"`
 }
 
@@ -460,6 +461,156 @@ func (h *ChatHandler) SendChatRoomMessage(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(h.toChatLogResponse(&chatLog))
 }
 
+// UpdateMessageRequest 메시지 수정 요청
+type UpdateMessageRequest struct {
+	Message string `json:"message"`
+}
+
+// UpdateChatMessage 채팅 메시지 수정
+func (h *ChatHandler) UpdateChatMessage(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*auth.Claims)
+	workspaceID, err := c.ParamsInt("workspaceId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid workspace id",
+		})
+	}
+	roomID, err := c.ParamsInt("roomId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid room id",
+		})
+	}
+	messageID, err := c.ParamsInt("messageId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid message id",
+		})
+	}
+
+	// 멤버 확인
+	if !h.isWorkspaceMember(int64(workspaceID), claims.UserID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you are not a member of this workspace",
+		})
+	}
+
+	// 메시지 조회
+	var chatLog model.ChatLog
+	err = h.db.Where("id = ? AND meeting_id = ?", messageID, roomID).First(&chatLog).Error
+	if err == gorm.ErrRecordNotFound {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "message not found",
+		})
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to get message",
+		})
+	}
+
+	// 본인 메시지인지 확인
+	if chatLog.SenderID == nil || *chatLog.SenderID != claims.UserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you can only edit your own messages",
+		})
+	}
+
+	var req UpdateMessageRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	if req.Message == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "message is required",
+		})
+	}
+
+	// 메시지 정제
+	req.Message = sanitizeString(req.Message)
+	if len(req.Message) > 2000 {
+		req.Message = req.Message[:2000]
+	}
+
+	// 메시지 수정
+	chatLog.Message = &req.Message
+	if err := h.db.Save(&chatLog).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update message",
+		})
+	}
+
+	// Sender 정보 로드
+	h.db.Preload("Sender").First(&chatLog, chatLog.ID)
+
+	return c.JSON(h.toChatLogResponse(&chatLog))
+}
+
+// DeleteChatMessage 채팅 메시지 삭제
+func (h *ChatHandler) DeleteChatMessage(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*auth.Claims)
+	workspaceID, err := c.ParamsInt("workspaceId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid workspace id",
+		})
+	}
+	roomID, err := c.ParamsInt("roomId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid room id",
+		})
+	}
+	messageID, err := c.ParamsInt("messageId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid message id",
+		})
+	}
+
+	// 멤버 확인
+	if !h.isWorkspaceMember(int64(workspaceID), claims.UserID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you are not a member of this workspace",
+		})
+	}
+
+	// 메시지 조회
+	var chatLog model.ChatLog
+	err = h.db.Where("id = ? AND meeting_id = ?", messageID, roomID).First(&chatLog).Error
+	if err == gorm.ErrRecordNotFound {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "message not found",
+		})
+	}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to get message",
+		})
+	}
+
+	// 본인 메시지인지 확인
+	if chatLog.SenderID == nil || *chatLog.SenderID != claims.UserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you can only delete your own messages",
+		})
+	}
+
+	// 메시지 삭제
+	if err := h.db.Delete(&chatLog).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to delete message",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "message deleted successfully",
+	})
+}
+
 // DeleteChatRoom 채팅방 삭제
 func (h *ChatHandler) DeleteChatRoom(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*auth.Claims)
@@ -541,6 +692,12 @@ func (h *ChatHandler) toChatLogResponse(log *model.ChatLog) ChatLogResponse {
 
 	if log.Message != nil {
 		resp.Message = *log.Message
+	}
+
+	// 수정된 메시지인 경우 updated_at 포함
+	if log.UpdatedAt != nil && !log.UpdatedAt.Equal(log.CreatedAt) {
+		updatedAt := log.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.UpdatedAt = &updatedAt
 	}
 
 	if log.Sender != nil && log.Sender.ID != 0 {

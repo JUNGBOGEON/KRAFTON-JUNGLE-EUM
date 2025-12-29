@@ -177,6 +177,8 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Delete("/:workspaceId/chatrooms/:roomId", s.chatHandler.DeleteChatRoom)
 	workspaceGroup.Get("/:workspaceId/chatrooms/:roomId/messages", s.chatHandler.GetChatRoomMessages)
 	workspaceGroup.Post("/:workspaceId/chatrooms/:roomId/messages", s.chatHandler.SendChatRoomMessage)
+	workspaceGroup.Put("/:workspaceId/chatrooms/:roomId/messages/:messageId", s.chatHandler.UpdateChatMessage)
+	workspaceGroup.Delete("/:workspaceId/chatrooms/:roomId/messages/:messageId", s.chatHandler.DeleteChatMessage)
 
 	// Meeting 라우트 (워크스페이스 하위)
 	workspaceGroup.Get("/:workspaceId/meetings", s.meetingHandler.GetWorkspaceMeetings)

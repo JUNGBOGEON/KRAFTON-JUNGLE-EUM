@@ -214,3 +214,83 @@ button, a, input {
 .animate-pulse-ring {
   animation: pulse-ring 2s ease-in-out infinite;
 }
+
+/* Chat Markdown Styles */
+.chat-markdown-light,
+.chat-markdown-dark {
+  word-break: break-word;
+}
+
+.chat-markdown-light p:not(:last-child),
+.chat-markdown-dark p:not(:last-child) {
+  margin-bottom: 0.5rem;
+}
+
+.chat-markdown-light table,
+.chat-markdown-dark table {
+  font-size: 0.75rem;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.chat-markdown-light th,
+.chat-markdown-light td {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 0.25rem 0.5rem;
+}
+
+.chat-markdown-dark th,
+.chat-markdown-dark td {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.25rem 0.5rem;
+}
+
+.chat-markdown-light th {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.chat-markdown-dark th {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-markdown-light h1,
+.chat-markdown-light h2,
+.chat-markdown-light h3,
+.chat-markdown-light h4,
+.chat-markdown-light h5,
+.chat-markdown-light h6 {
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.chat-markdown-dark h1,
+.chat-markdown-dark h2,
+.chat-markdown-dark h3,
+.chat-markdown-dark h4,
+.chat-markdown-dark h5,
+.chat-markdown-dark h6 {
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.chat-markdown-light h1,
+.chat-markdown-dark h1 {
+  font-size: 1.125rem;
+}
+
+.chat-markdown-light h2,
+.chat-markdown-dark h2 {
+  font-size: 1rem;
+}
+
+.chat-markdown-light h3,
+.chat-markdown-light h4,
+.chat-markdown-light h5,
+.chat-markdown-light h6,
+.chat-markdown-dark h3,
+.chat-markdown-dark h4,
+.chat-markdown-dark h5,
+.chat-markdown-dark h6 {
+  font-size: 0.875rem;
+}
