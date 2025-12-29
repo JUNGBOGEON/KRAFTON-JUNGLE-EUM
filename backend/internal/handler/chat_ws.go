@@ -15,7 +15,7 @@ import (
 // ChatWSHandler WebSocket 채팅 핸들러
 type ChatWSHandler struct {
 	db    *gorm.DB
-	rooms map[int64]*ChatRoom // roomID -> ChatRoom
+	rooms map[int64]*ChatRoom // workspaceID -> ChatRoom
 	mu    sync.RWMutex
 }
 
@@ -34,7 +34,7 @@ type ChatClient struct {
 
 // WSMessage WebSocket 메시지
 type WSMessage struct {
-	Type    string      `json:"type"` // message, message_update, message_delete, typing, stop_typing, join, leave
+	Type    string      `json:"type"` // message, typing, stop_typing, join, leave
 	Payload interface{} `json:"payload,omitempty"`
 }
 
@@ -45,19 +45,6 @@ type ChatPayload struct {
 	SenderID  int64  `json:"sender_id"`
 	Nickname  string `json:"nickname"`
 	CreatedAt string `json:"created_at,omitempty"`
-}
-
-// MessageUpdatePayload 메시지 수정 페이로드
-type MessageUpdatePayload struct {
-	ID       int64  `json:"id"`
-	Message  string `json:"message"`
-	SenderID int64  `json:"sender_id"`
-}
-
-// MessageDeletePayload 메시지 삭제 페이로드
-type MessageDeletePayload struct {
-	ID       int64 `json:"id"`
-	SenderID int64 `json:"sender_id"`
 }
 
 // TypingPayload 타이핑 페이로드
@@ -75,29 +62,29 @@ func NewChatWSHandler(db *gorm.DB) *ChatWSHandler {
 }
 
 // getOrCreateRoom 채팅방 조회 또는 생성
-func (h *ChatWSHandler) getOrCreateRoom(roomID int64) *ChatRoom {
+func (h *ChatWSHandler) getOrCreateRoom(workspaceID int64) *ChatRoom {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if room, ok := h.rooms[roomID]; ok {
+	if room, ok := h.rooms[workspaceID]; ok {
 		return room
 	}
 
 	room := &ChatRoom{
 		clients: make(map[*websocket.Conn]*ChatClient),
 	}
-	h.rooms[roomID] = room
+	h.rooms[workspaceID] = room
 	return room
 }
 
 // HandleWebSocket WebSocket 연결 처리
 func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 	// 쿼리 파라미터에서 정보 추출
-	roomID := c.Locals("roomId").(int64)
+	workspaceID := c.Locals("workspaceId").(int64)
 	userID := c.Locals("userId").(int64)
 	nickname := c.Locals("nickname").(string)
 
-	room := h.getOrCreateRoom(roomID)
+	room := h.getOrCreateRoom(workspaceID)
 
 	client := &ChatClient{
 		UserID:   userID,
@@ -110,7 +97,7 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 	room.clients[c] = client
 	room.mu.Unlock()
 
-	log.Printf("채팅 클라이언트 연결: room=%d, user=%d", roomID, userID)
+	log.Printf("채팅 클라이언트 연결: workspace=%d, user=%d", workspaceID, userID)
 
 	// 연결 해제 시 정리
 	defer func() {
@@ -118,7 +105,7 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 		delete(room.clients, c)
 		room.mu.Unlock()
 		c.Close()
-		log.Printf("채팅 클라이언트 연결 해제: room=%d, user=%d", roomID, userID)
+		log.Printf("채팅 클라이언트 연결 해제: workspace=%d, user=%d", workspaceID, userID)
 	}()
 
 	// 메시지 수신 루프
@@ -135,11 +122,7 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 
 		switch msg.Type {
 		case "message":
-			h.handleMessage(room, client, roomID, msg.Payload)
-		case "message_update":
-			h.handleMessageUpdate(room, client, roomID, msg.Payload)
-		case "message_delete":
-			h.handleMessageDelete(room, client, roomID, msg.Payload)
+			h.handleMessage(room, client, workspaceID, msg.Payload)
 		case "typing":
 			h.broadcastTyping(room, client, true)
 		case "stop_typing":
@@ -149,7 +132,7 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 }
 
 // handleMessage 메시지 처리
-func (h *ChatWSHandler) handleMessage(room *ChatRoom, client *ChatClient, roomID int64, payload interface{}) {
+func (h *ChatWSHandler) handleMessage(room *ChatRoom, client *ChatClient, workspaceID int64, payload interface{}) {
 	payloadBytes, _ := json.Marshal(payload)
 	var chatPayload ChatPayload
 	if err := json.Unmarshal(payloadBytes, &chatPayload); err != nil {
@@ -165,10 +148,17 @@ func (h *ChatWSHandler) handleMessage(room *ChatRoom, client *ChatClient, roomID
 		chatPayload.Message = chatPayload.Message[:2000]
 	}
 
-	// DB에 저장 (roomID가 곧 meetingID)
+	// 워크스페이스 채팅 미팅 조회
+	var meeting model.Meeting
+	err := h.db.Where("workspace_id = ? AND type = ?", workspaceID, "WORKSPACE_CHAT").First(&meeting).Error
+	if err != nil {
+		return
+	}
+
+	// DB에 저장
 	message := chatPayload.Message
 	chatLog := model.ChatLog{
-		MeetingID: roomID,
+		MeetingID: meeting.ID,
 		SenderID:  &client.UserID,
 		Message:   &message,
 		Type:      "TEXT",
@@ -187,91 +177,6 @@ func (h *ChatWSHandler) handleMessage(room *ChatRoom, client *ChatClient, roomID
 			SenderID:  client.UserID,
 			Nickname:  client.Nickname,
 			CreatedAt: chatLog.CreatedAt.Format(time.RFC3339),
-		},
-	}
-
-	h.broadcast(room, broadcastMsg)
-}
-
-// handleMessageUpdate 메시지 수정 처리
-func (h *ChatWSHandler) handleMessageUpdate(room *ChatRoom, client *ChatClient, roomID int64, payload interface{}) {
-	payloadBytes, _ := json.Marshal(payload)
-	var updatePayload MessageUpdatePayload
-	if err := json.Unmarshal(payloadBytes, &updatePayload); err != nil {
-		return
-	}
-
-	if updatePayload.ID == 0 || updatePayload.Message == "" {
-		return
-	}
-
-	// 메시지 조회 및 소유권 확인
-	var chatLog model.ChatLog
-	if err := h.db.Where("id = ? AND meeting_id = ?", updatePayload.ID, roomID).First(&chatLog).Error; err != nil {
-		return
-	}
-
-	if chatLog.SenderID == nil || *chatLog.SenderID != client.UserID {
-		return
-	}
-
-	// 메시지 길이 제한
-	if len(updatePayload.Message) > 2000 {
-		updatePayload.Message = updatePayload.Message[:2000]
-	}
-
-	// DB 업데이트
-	chatLog.Message = &updatePayload.Message
-	if err := h.db.Save(&chatLog).Error; err != nil {
-		return
-	}
-
-	// 브로드캐스트
-	broadcastMsg := WSMessage{
-		Type: "message_update",
-		Payload: MessageUpdatePayload{
-			ID:       updatePayload.ID,
-			Message:  updatePayload.Message,
-			SenderID: client.UserID,
-		},
-	}
-
-	h.broadcast(room, broadcastMsg)
-}
-
-// handleMessageDelete 메시지 삭제 처리
-func (h *ChatWSHandler) handleMessageDelete(room *ChatRoom, client *ChatClient, roomID int64, payload interface{}) {
-	payloadBytes, _ := json.Marshal(payload)
-	var deletePayload MessageDeletePayload
-	if err := json.Unmarshal(payloadBytes, &deletePayload); err != nil {
-		return
-	}
-
-	if deletePayload.ID == 0 {
-		return
-	}
-
-	// 메시지 조회 및 소유권 확인
-	var chatLog model.ChatLog
-	if err := h.db.Where("id = ? AND meeting_id = ?", deletePayload.ID, roomID).First(&chatLog).Error; err != nil {
-		return
-	}
-
-	if chatLog.SenderID == nil || *chatLog.SenderID != client.UserID {
-		return
-	}
-
-	// DB에서 삭제
-	if err := h.db.Delete(&chatLog).Error; err != nil {
-		return
-	}
-
-	// 브로드캐스트
-	broadcastMsg := WSMessage{
-		Type: "message_delete",
-		Payload: MessageDeletePayload{
-			ID:       deletePayload.ID,
-			SenderID: client.UserID,
 		},
 	}
 

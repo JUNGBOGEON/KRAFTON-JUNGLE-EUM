@@ -14,9 +14,7 @@
     "@ricky0123/vad-web": "^0.0.30",
     "next": "16.1.1",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

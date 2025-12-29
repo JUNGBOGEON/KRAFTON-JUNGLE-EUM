@@ -21,77 +21,98 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: 'Paperozi', sans-serif;
-  --font-mono: 'Paperozi', sans-serif;
+  --font-sans: 'Presentation', sans-serif;
+  --font-mono: var(--font-geist-mono);
 }
 
-/* Paperozi Font (Paperlogy) */
+/* Presentation Font (Freesentation) */
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-1Thin.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-1Thin.woff2') format('woff2');
   font-weight: 100;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-2ExtraLight.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-2ExtraLight.woff2') format('woff2');
   font-weight: 200;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-3Light.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-3Light.woff2') format('woff2');
   font-weight: 300;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-4Regular.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-4Regular.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-5Medium.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-5Medium.woff2') format('woff2');
   font-weight: 500;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-6SemiBold.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-6SemiBold.woff2') format('woff2');
   font-weight: 600;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-7Bold.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-7Bold.woff2') format('woff2');
   font-weight: 700;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-8ExtraBold.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-8ExtraBold.woff2') format('woff2');
   font-weight: 800;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Paperozi';
-  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2408-3@1.0/Paperlogy-9Black.woff2') format('woff2');
+  font-family: 'Presentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-9Black.woff2') format('woff2');
   font-weight: 900;
+  font-display: swap;
+}
+
+/* Handwritten Font (GapyeongHanseokbong) */
+@font-face {
+  font-family: 'Handwritten';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2312-1@1.1/GapyeongHanseokbong-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Handwritten';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2312-1@1.1/GapyeongHanseokbong-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Handwritten';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2312-1@1.1/GapyeongHanseokbong-Bold.woff2') format('woff2');
+  font-weight: 700;
   font-display: swap;
 }
 
 * {
   box-sizing: border-box;
-  font-family: 'Paperozi', sans-serif !important;
 }
 
 html, body {
@@ -107,7 +128,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: 'Paperozi', sans-serif;
+  font-family: 'Presentation', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -143,14 +164,11 @@ body {
   outline-offset: 2px;
 }
 
-/* Remove focus outline for all inputs and textareas */
-input:focus,
-input:focus-visible,
-textarea:focus,
-textarea:focus-visible {
+/* Remove focus outline for inputs with no-focus-outline class */
+input.no-focus-outline:focus,
+input.no-focus-outline:focus-visible {
   outline: none !important;
   box-shadow: none !important;
-  border-color: inherit;
 }
 
 /* Smooth transitions */
@@ -213,84 +231,4 @@ button, a, input {
 
 .animate-pulse-ring {
   animation: pulse-ring 2s ease-in-out infinite;
-}
-
-/* Chat Markdown Styles */
-.chat-markdown-light,
-.chat-markdown-dark {
-  word-break: break-word;
-}
-
-.chat-markdown-light p:not(:last-child),
-.chat-markdown-dark p:not(:last-child) {
-  margin-bottom: 0.5rem;
-}
-
-.chat-markdown-light table,
-.chat-markdown-dark table {
-  font-size: 0.75rem;
-  border-collapse: collapse;
-  margin: 0.5rem 0;
-  width: 100%;
-}
-
-.chat-markdown-light th,
-.chat-markdown-light td {
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 0.25rem 0.5rem;
-}
-
-.chat-markdown-dark th,
-.chat-markdown-dark td {
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 0.25rem 0.5rem;
-}
-
-.chat-markdown-light th {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.chat-markdown-dark th {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.chat-markdown-light h1,
-.chat-markdown-light h2,
-.chat-markdown-light h3,
-.chat-markdown-light h4,
-.chat-markdown-light h5,
-.chat-markdown-light h6 {
-  font-weight: 600;
-  margin: 0.5rem 0 0.25rem;
-}
-
-.chat-markdown-dark h1,
-.chat-markdown-dark h2,
-.chat-markdown-dark h3,
-.chat-markdown-dark h4,
-.chat-markdown-dark h5,
-.chat-markdown-dark h6 {
-  font-weight: 600;
-  margin: 0.5rem 0 0.25rem;
-}
-
-.chat-markdown-light h1,
-.chat-markdown-dark h1 {
-  font-size: 1.125rem;
-}
-
-.chat-markdown-light h2,
-.chat-markdown-dark h2 {
-  font-size: 1rem;
-}
-
-.chat-markdown-light h3,
-.chat-markdown-light h4,
-.chat-markdown-light h5,
-.chat-markdown-light h6,
-.chat-markdown-dark h3,
-.chat-markdown-dark h4,
-.chat-markdown-dark h5,
-.chat-markdown-dark h6 {
-  font-size: 0.875rem;
 }

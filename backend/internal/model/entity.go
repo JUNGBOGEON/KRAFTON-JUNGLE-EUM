@@ -153,13 +153,12 @@ func (Whiteboard) TableName() string {
 
 // ChatLog 채팅 로그
 type ChatLog struct {
-	ID        int64      `gorm:"primaryKey;autoIncrement" json:"id"`
-	MeetingID int64      `gorm:"not null;index" json:"meeting_id"`
-	SenderID  *int64     `gorm:"index" json:"sender_id,omitempty"`
-	Message   *string    `gorm:"type:text" json:"message,omitempty"`
-	Type      string     `gorm:"type:varchar(20);default:'TEXT'" json:"type"` // TEXT, SYSTEM
-	CreatedAt time.Time  `gorm:"autoCreateTime;index" json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime" json:"updated_at,omitempty"`
+	ID        int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	MeetingID int64     `gorm:"not null" json:"meeting_id"`
+	SenderID  *int64    `json:"sender_id,omitempty"`
+	Message   *string   `gorm:"type:text" json:"message,omitempty"`
+	Type      string    `gorm:"type:varchar(20);default:'TEXT'" json:"type"` // TEXT, SYSTEM
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 
 	// Relations
 	Meeting Meeting `gorm:"foreignKey:MeetingID" json:"meeting,omitempty"`
