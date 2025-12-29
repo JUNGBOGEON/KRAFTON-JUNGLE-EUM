@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
+import { apiClient, UserSearchResult } from "../lib/api";
 
 // 임시 워크스페이스 데이터 (나중에 API로 대체)
 const mockWorkspaces = [
@@ -37,6 +38,25 @@ export default function WorkspacePage() {
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [isClosingModal, setIsClosingModal] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+
+  // 멤버 초대 관련 state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<UserSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleOpenModal = () => {
+    setShowNewWorkspace(true);
+    // 비디오 재생 시작
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play();
+    }
+  };
 
   const handleCloseModal = () => {
     setIsClosingModal(true);
@@ -44,7 +64,91 @@ export default function WorkspacePage() {
       setShowNewWorkspace(false);
       setIsClosingModal(false);
       setNewWorkspaceName("");
+      setCreateStep(1);
+      setSearchQuery("");
+      setSearchResults([]);
+      setSelectedMembers([]);
+      // 비디오 일시정지
+      if (videoRef.current) {
+        videoRef.current.pause();
+      }
     }, 1000);
+  };
+
+  // 유저 검색 (debounce 적용)
+  const handleSearch = useCallback(async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const result = await apiClient.searchUsers(query);
+      // 이미 선택된 멤버는 검색 결과에서 제외
+      const filteredUsers = result.users.filter(
+        (u) => !selectedMembers.some((m) => m.id === u.id)
+      );
+      setSearchResults(filteredUsers);
+    } catch (error) {
+      console.error("Search failed:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [selectedMembers]);
+
+  // 검색어 변경 시 debounce 적용
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, handleSearch]);
+
+  // 멤버 추가
+  const handleAddMember = (user: UserSearchResult) => {
+    setSelectedMembers((prev) => [...prev, user]);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  // 멤버 제거
+  const handleRemoveMember = (userId: number) => {
+    setSelectedMembers((prev) => prev.filter((m) => m.id !== userId));
+  };
+
+  // 다음 단계로 이동
+  const handleNextStep = () => {
+    if (newWorkspaceName.trim()) {
+      setCreateStep(2);
+    }
+  };
+
+  // 이전 단계로 이동
+  const handlePrevStep = () => {
+    setCreateStep(1);
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
+  // 워크스페이스 생성 완료
+  const handleCreateWorkspace = () => {
+    console.log("Creating workspace:", {
+      name: newWorkspaceName,
+      members: selectedMembers.map((m) => m.id),
+    });
+    // TODO: API 호출하여 워크스페이스 생성
+    handleCloseModal();
   };
 
   useEffect(() => {
@@ -76,6 +180,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
+      
       {/* Background Images */}
       <img
         src="/workspace-left-top-background.png"
@@ -164,7 +269,7 @@ export default function WorkspacePage() {
               {/* New Workspace Card */}
               <button
                 className="group h-56 border-2 border-dashed border-black/10 hover:border-black/30 transition-all duration-300 flex flex-col items-center justify-center gap-4 hover:bg-black/[0.01]"
-                onClick={() => setShowNewWorkspace(true)}
+                onClick={handleOpenModal}
               >
                 <img
                   src="/logo_black.png"
@@ -263,87 +368,141 @@ export default function WorkspacePage() {
         </div>
       </main>
 
-      {/* New Workspace Modal */}
-      {showNewWorkspace && (
-        <div
-          className={`fixed inset-0 z-[100] flex transition-transform duration-1000 ${
-            isClosingModal ? 'translate-y-full' : 'animate-slide-up'
-          }`}
-          style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-        >
-          {/* Left Side - Background Image */}
-          <div className="w-[70%] h-full relative">
-            <img
-              src="/new-workspace-page-background.jpg"
-              alt=""
-              className="w-full h-full object-cover"
-            />
-            {/* Close Button */}
-            <button
-              onClick={handleCloseModal}
-              className="absolute top-8 left-8 w-10 h-10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+      {/* New Workspace Modal - 항상 렌더링하여 비디오 프리로드 */}
+      <div
+        className={`fixed inset-0 z-[100] flex transition-all duration-1000 ${
+          showNewWorkspace
+            ? isClosingModal
+              ? 'translate-y-full'
+              : 'translate-y-0'
+            : 'translate-y-full pointer-events-none'
+        }`}
+        style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
+      >
+        {/* Left Side - Background Video */}
+        <div className="w-[70%] h-full relative overflow-hidden">
+          <video
+            ref={videoRef}
+            src="/new-workspace-page-background-video.mp4"
+            className="w-full h-full object-cover"
+            muted
+            loop
+            playsInline
+            preload="auto"
+          />
+          {/* Close Button */}
+          <button
+            onClick={handleCloseModal}
+            className="absolute top-8 left-8 w-10 h-10 flex items-center justify-center bg-black/30 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/50 hover:text-white transition-all"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
 
-          {/* Right Side - Form */}
-          <div className="w-[30%] h-full bg-white flex flex-col justify-center px-12 border-l border-black/10">
-            <div className="w-full">
-              <p className="text-xs text-black/30 uppercase tracking-[0.2em] mb-2">
-                CREATE WORKSPACE
-              </p>
-              <h2 className="text-2xl font-medium text-black mb-8">
-                새 워크스페이스
-              </h2>
+        {/* Right Side - Form */}
+        <div className="w-[30%] h-full bg-white flex flex-col justify-center px-12 border-l border-black/10">
+          <div className="w-full">
+            {/* Step Indicator */}
+            <div className="flex items-center gap-2 mb-6">
+              <div className={`w-2 h-2 rounded-full transition-colors ${createStep === 1 ? 'bg-black' : 'bg-black/20'}`} />
+              <div className={`w-2 h-2 rounded-full transition-colors ${createStep === 2 ? 'bg-black' : 'bg-black/20'}`} />
+            </div>
 
-              <div className="space-y-12">
-                <div>
-                  <input
-                    type="text"
-                    value={newWorkspaceName}
-                    onChange={(e) => setNewWorkspaceName(e.target.value)}
-                    placeholder="이름 입력"
-                    className="no-focus-outline w-full py-3 text-lg text-black border-x-0 border-t-0 border-b border-black/10 bg-transparent placeholder:text-black/20"
-                    autoFocus
-                  />
+            {/* Step 1: 워크스페이스 이름 */}
+            {createStep === 1 && (
+              <>
+                <p className="text-xs text-black/30 uppercase tracking-[0.2em] mb-2">
+                  STEP 1
+                </p>
+                <h2 className="text-2xl font-medium text-black mb-8">
+                  워크스페이스 이름
+                </h2>
+
+                <div className="space-y-12">
+                  <div>
+                    <input
+                      type="text"
+                      value={newWorkspaceName}
+                      onChange={(e) => setNewWorkspaceName(e.target.value)}
+                      placeholder="이름 입력"
+                      className="no-focus-outline w-full py-3 text-lg text-black border-x-0 border-t-0 border-b border-black/10 bg-transparent placeholder:text-black/20"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Next Button */}
+                  <button
+                    onClick={handleNextStep}
+                    disabled={!newWorkspaceName.trim()}
+                    className={`group flex items-center gap-3 transition-all duration-300 ${
+                      newWorkspaceName.trim()
+                        ? 'text-black cursor-pointer'
+                        : 'text-black/20 cursor-not-allowed'
+                    }`}
+                  >
+                    <span className="text-sm font-medium tracking-wide">다음</span>
+                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-300 ${
+                      newWorkspaceName.trim()
+                        ? 'border-black group-hover:bg-black group-hover:text-white'
+                        : 'border-black/20'
+                    }`}>
+                      <svg
+                        className={`w-4 h-4 transition-transform duration-300 ${newWorkspaceName.trim() ? 'group-hover:translate-x-0.5' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </div>
+                  </button>
                 </div>
+              </>
+            )}
 
-                {/* Next Button - Arrow style */}
-                <button
-                  onClick={() => {
-                    if (newWorkspaceName.trim()) {
-                      // TODO: 다음 단계 처리
-                      console.log("Creating workspace:", newWorkspaceName);
-                    }
-                  }}
-                  disabled={!newWorkspaceName.trim()}
-                  className={`group flex items-center gap-3 transition-all duration-300 ${
-                    newWorkspaceName.trim()
-                      ? 'text-black cursor-pointer'
-                      : 'text-black/20 cursor-not-allowed'
-                  }`}
-                >
-                  <span className="text-sm font-medium tracking-wide">다음</span>
-                  <div className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all duration-300 ${
-                    newWorkspaceName.trim()
-                      ? 'border-black group-hover:bg-black group-hover:text-white'
-                      : 'border-black/20'
-                  }`}>
+            {/* Step 2: 멤버 초대 */}
+            {createStep === 2 && (
+              <>
+                <p className="text-xs text-black/30 uppercase tracking-[0.2em] mb-2">
+                  STEP 2
+                </p>
+                <h2 className="text-2xl font-medium text-black mb-2">
+                  멤버 초대
+                </h2>
+                <p className="text-sm text-black/40 mb-6">
+                  이름 또는 이메일로 검색하세요
+                </p>
+
+                <div className="space-y-6">
+                  {/* Search Input */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="검색..."
+                      className="no-focus-outline w-full py-3 pl-10 text-base text-black border border-black/10 bg-transparent placeholder:text-black/20 rounded-lg"
+                      autoFocus
+                    />
                     <svg
-                      className={`w-4 h-4 transition-transform duration-300 ${newWorkspaceName.trim() ? 'group-hover:translate-x-0.5' : ''}`}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black/30"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -352,16 +511,177 @@ export default function WorkspacePage() {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={1.5}
-                        d="M9 5l7 7-7 7"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                       />
                     </svg>
+                    {isSearching && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <div className="w-4 h-4 border-2 border-black/20 border-t-black/60 rounded-full animate-spin" />
+                      </div>
+                    )}
                   </div>
-                </button>
-              </div>
-            </div>
+
+                  {/* Search Results */}
+                  {searchResults.length > 0 && (
+                    <div className="border border-black/10 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                      {searchResults.map((result) => (
+                        <button
+                          key={result.id}
+                          onClick={() => handleAddMember(result)}
+                          className="w-full flex items-center gap-3 p-3 hover:bg-black/5 transition-colors text-left"
+                        >
+                          {result.profile_img ? (
+                            <img
+                              src={result.profile_img}
+                              alt={result.nickname}
+                              className="w-8 h-8 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center">
+                              <span className="text-xs font-medium text-black/50">
+                                {result.nickname.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-black truncate">
+                              {result.nickname}
+                            </p>
+                            <p className="text-xs text-black/40 truncate">
+                              {result.email}
+                            </p>
+                          </div>
+                          <svg
+                            className="w-5 h-5 text-black/30"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={1.5}
+                              d="M12 4v16m8-8H4"
+                            />
+                          </svg>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* No Results */}
+                  {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (
+                    <p className="text-sm text-black/40 text-center py-4">
+                      검색 결과가 없습니다
+                    </p>
+                  )}
+
+                  {/* Selected Members */}
+                  {selectedMembers.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-black/40 uppercase tracking-wider">
+                        초대할 멤버 ({selectedMembers.length})
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedMembers.map((member) => (
+                          <div
+                            key={member.id}
+                            className="flex items-center gap-2 bg-black/5 rounded-full pl-1 pr-2 py-1"
+                          >
+                            {member.profile_img ? (
+                              <img
+                                src={member.profile_img}
+                                alt={member.nickname}
+                                className="w-6 h-6 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center">
+                                <span className="text-[10px] font-medium text-black/50">
+                                  {member.nickname.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                            )}
+                            <span className="text-sm text-black/70">
+                              {member.nickname}
+                            </span>
+                            <button
+                              onClick={() => handleRemoveMember(member.id)}
+                              className="w-4 h-4 rounded-full hover:bg-black/10 flex items-center justify-center transition-colors"
+                            >
+                              <svg
+                                className="w-3 h-3 text-black/40"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center justify-between pt-4">
+                    {/* Back Button */}
+                    <button
+                      onClick={handlePrevStep}
+                      className="group flex items-center gap-2 text-black/50 hover:text-black transition-colors"
+                    >
+                      <svg
+                        className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M15 19l-7-7 7-7"
+                        />
+                      </svg>
+                      <span className="text-sm">이전</span>
+                    </button>
+
+                    {/* Create / Skip Button */}
+                    <button
+                      onClick={handleCreateWorkspace}
+                      className="group flex items-center gap-3 text-black"
+                    >
+                      <span className="text-sm font-medium tracking-wide">
+                        {selectedMembers.length > 0 ? '완료' : '건너뛰기'}
+                      </span>
+                      <div className="w-8 h-8 rounded-full border border-black flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all duration-300">
+                        <svg
+                          className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-300"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

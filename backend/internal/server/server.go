@@ -27,6 +27,7 @@ type Server struct {
 	db          *gorm.DB
 	handler     *handler.AudioHandler
 	authHandler *handler.AuthHandler
+	userHandler *handler.UserHandler
 	jwtManager  *auth.JWTManager
 }
 
@@ -55,6 +56,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	)
 	googleAuth := auth.NewGoogleAuthenticator(cfg.Auth.GoogleClientID)
 	authHandler := handler.NewAuthHandler(db, jwtManager, googleAuth, cfg.Auth.SecureCookie)
+	userHandler := handler.NewUserHandler(db)
 
 	return &Server{
 		app:         app,
@@ -62,6 +64,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		db:          db,
 		handler:     handler.NewAudioHandler(cfg),
 		authHandler: authHandler,
+		userHandler: userHandler,
 		jwtManager:  jwtManager,
 	}
 }
@@ -119,6 +122,10 @@ func (s *Server) SetupRoutes() {
 	authGroup.Post("/refresh", authLimiter, s.authHandler.RefreshToken)
 	authGroup.Post("/logout", auth.AuthMiddleware(s.jwtManager), s.authHandler.Logout) // 인증된 사용자만
 	authGroup.Get("/me", auth.AuthMiddleware(s.jwtManager), s.authHandler.GetMe)
+
+	// User 라우트 그룹 (인증 필요)
+	userGroup := s.app.Group("/api/users", auth.AuthMiddleware(s.jwtManager))
+	userGroup.Get("/search", s.userHandler.SearchUsers)
 
 	// WebSocket 업그레이드 체크 미들웨어
 	s.app.Use("/ws", func(c *fiber.Ctx) error {

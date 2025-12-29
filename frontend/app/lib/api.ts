@@ -11,6 +11,18 @@ interface AuthResponse {
   expires_in: number;
 }
 
+interface UserSearchResult {
+  id: number;
+  email: string;
+  nickname: string;
+  profile_img?: string;
+}
+
+interface SearchUsersResponse {
+  users: UserSearchResult[];
+  total: number;
+}
+
 // HTTP-only 쿠키 기반 인증 (XSS 방지)
 class ApiClient {
   private isLoggedIn: boolean = false;
@@ -109,7 +121,17 @@ class ApiClient {
       return false;
     }
   }
+
+  // 유저 검색 (닉네임 또는 이메일)
+  async searchUsers(query: string): Promise<SearchUsersResponse> {
+    if (query.length < 2) {
+      return { users: [], total: 0 };
+    }
+    return this.request<SearchUsersResponse>(
+      `/api/users/search?q=${encodeURIComponent(query)}`
+    );
+  }
 }
 
 export const apiClient = new ApiClient();
-export type { AuthResponse };
+export type { AuthResponse, UserSearchResult, SearchUsersResponse };
