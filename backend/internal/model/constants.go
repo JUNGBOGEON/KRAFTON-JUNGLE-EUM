@@ -6,7 +6,6 @@ type MemberStatus string
 const (
 	MemberStatusPending MemberStatus = "PENDING"
 	MemberStatusActive  MemberStatus = "ACTIVE"
-	MemberStatusLeft    MemberStatus = "LEFT"
 )
 
 // NotificationType 알림 타입

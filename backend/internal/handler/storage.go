@@ -11,7 +11,6 @@ import (
 	"realtime-backend/internal/storage"
 )
 
-// StorageHandler 저장소 핸들러
 type StorageHandler struct {
 	db *gorm.DB
 	s3 *storage.S3Service
@@ -24,19 +23,19 @@ func NewStorageHandler(db *gorm.DB, s3 *storage.S3Service) *StorageHandler {
 
 // FileResponse 파일/폴더 응답
 type FileResponse struct {
-	ID               int64         `json:"id"`
-	WorkspaceID      int64         `json:"workspace_id"`
-	UploaderID       *int64        `json:"uploader_id,omitempty"`
-	ParentFolderID   *int64        `json:"parent_folder_id,omitempty"`
-	Name             string        `json:"name"`
-	Type             string        `json:"type"` // FILE, FOLDER
-	FileURL          *string       `json:"file_url,omitempty"`
-	FileSize         *int64        `json:"file_size,omitempty"`
-	MimeType         *string       `json:"mime_type,omitempty"`
-	S3Key            *string       `json:"s3_key,omitempty"`
-	RelatedMeetingID *int64        `json:"related_meeting_id,omitempty"`
-	CreatedAt        string        `json:"created_at"`
-	Uploader         *UserResponse `json:"uploader,omitempty"`
+	ID               int64          `json:"id"`
+	WorkspaceID      int64          `json:"workspace_id"`
+	UploaderID       *int64         `json:"uploader_id,omitempty"`
+	ParentFolderID   *int64         `json:"parent_folder_id,omitempty"`
+	Name             string         `json:"name"`
+	Type             string         `json:"type"` // FILE, FOLDER
+	FileURL          *string        `json:"file_url,omitempty"`
+	FileSize         *int64         `json:"file_size,omitempty"`
+	MimeType         *string        `json:"mime_type,omitempty"`
+	S3Key            *string        `json:"s3_key,omitempty"`
+	RelatedMeetingID *int64         `json:"related_meeting_id,omitempty"`
+	CreatedAt        string         `json:"created_at"`
+	Uploader         *UserResponse  `json:"uploader,omitempty"`
 	Children         []FileResponse `json:"children,omitempty"`
 }
 
@@ -336,11 +335,11 @@ func (h *StorageHandler) UploadFile(c *fiber.Ctx) error {
 	}
 
 	var req struct {
-		Name           string  `json:"name"`
-		ParentFolderID *int64  `json:"parent_folder_id,omitempty"`
-		FileURL        string  `json:"file_url"`
-		FileSize       int64   `json:"file_size"`
-		MimeType       string  `json:"mime_type"`
+		Name           string `json:"name"`
+		ParentFolderID *int64 `json:"parent_folder_id,omitempty"`
+		FileURL        string `json:"file_url"`
+		FileSize       int64  `json:"file_size"`
+		MimeType       string `json:"mime_type"`
 	}
 
 	if err := c.BodyParser(&req); err != nil {
