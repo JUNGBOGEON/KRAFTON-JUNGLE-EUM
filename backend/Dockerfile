@@ -1,7 +1,7 @@
 # ================================
 # Stage 1: Build
 # ================================
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # 빌드에 필요한 도구 설치
 RUN apk add --no-cache git ca-certificates tzdata
