@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -132,10 +133,63 @@ func (h *NotificationHandler) AcceptInvitation(c *fiber.Ctx) error {
 
 	tx.Commit()
 
+	// WebSocket으로 워크스페이스 멤버들에게 실시간 알림
+	go h.broadcastMemberJoined(workspaceID, claims.UserID)
+
 	return c.JSON(fiber.Map{
 		"message":      "invitation accepted",
 		"workspace_id": workspaceID,
 	})
+}
+
+// broadcastMemberJoined 새 멤버 참여 시 알림 브로드캐스트
+func (h *NotificationHandler) broadcastMemberJoined(workspaceID int64, newMemberID int64) {
+	// 1. 워크스페이스의 모든 ACTIVE 멤버 조회
+	var activeMembers []model.WorkspaceMember
+	h.db.Where("workspace_id = ? AND status = ?",
+		workspaceID, model.MemberStatusActive.String()).
+		Find(&activeMembers)
+
+	// 2. 새로 참여한 멤버 정보 조회
+	var newMember model.User
+	if err := h.db.First(&newMember, newMemberID).Error; err != nil {
+		return
+	}
+
+	// 3. 워크스페이스 정보 조회
+	var workspace model.Workspace
+	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
+		return
+	}
+
+	// 4. 각 ACTIVE 멤버에게 브로드캐스트 (본인 제외)
+	for _, m := range activeMembers {
+		if m.UserID == newMemberID {
+			continue // 본인은 제외
+		}
+
+		// 알림 생성
+		content := fmt.Sprintf("%s님이 %s 워크스페이스에 참여했습니다.", newMember.Nickname, workspace.Name)
+		relatedType := "WORKSPACE"
+
+		payload := NotificationPayload{
+			ID:          0,
+			Type:        string(model.NotificationTypeWorkspaceMemberJoined),
+			Content:     content,
+			IsRead:      false,
+			RelatedType: &relatedType,
+			RelatedID:   &workspaceID,
+			CreatedAt:   time.Now().Format("2006-01-02T15:04:05Z07:00"),
+			Sender: &UserResponse{
+				ID:         newMember.ID,
+				Email:      newMember.Email,
+				Nickname:   newMember.Nickname,
+				ProfileImg: newMember.ProfileImg,
+			},
+		}
+
+		GetNotificationWSHandler().SendToUser(m.UserID, payload)
+	}
 }
 
 // DeclineInvitation 초대 거절

@@ -6,16 +6,16 @@ type MemberStatus string
 const (
 	MemberStatusPending MemberStatus = "PENDING"
 	MemberStatusActive  MemberStatus = "ACTIVE"
-	MemberStatusLeft    MemberStatus = "LEFT"
 )
 
 // NotificationType 알림 타입
 type NotificationType string
 
 const (
-	NotificationTypeWorkspaceInvite NotificationType = "WORKSPACE_INVITE"
-	NotificationTypeMeetingAlert    NotificationType = "MEETING_ALERT"
-	NotificationTypeCommentMention  NotificationType = "COMMENT_MENTION"
+	NotificationTypeWorkspaceInvite       NotificationType = "WORKSPACE_INVITE"
+	NotificationTypeMeetingAlert          NotificationType = "MEETING_ALERT"
+	NotificationTypeCommentMention        NotificationType = "COMMENT_MENTION"
+	NotificationTypeWorkspaceMemberJoined NotificationType = "WORKSPACE_MEMBER_JOINED"
 )
 
 // String 메서드

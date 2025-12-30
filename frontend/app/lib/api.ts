@@ -28,7 +28,7 @@ interface WorkspaceMember {
   id: number;
   user_id: number;
   role_id?: number;
-  status?: string; // PENDING, ACTIVE, LEFT
+  status: 'PENDING' | 'ACTIVE'; // Required field with union type
   joined_at: string;
   user?: UserSearchResult;
 }

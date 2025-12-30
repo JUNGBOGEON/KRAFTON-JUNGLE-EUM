@@ -144,8 +144,12 @@ func (h *WorkspaceHandler) CreateWorkspace(c *fiber.Ctx) error {
 		}
 	}
 
-	// 생성된 워크스페이스 조회 (멤버 포함)
-	h.db.Preload("Owner").Preload("Members.User").First(&workspace, workspace.ID)
+	// 생성된 워크스페이스 조회 (ACTIVE 멤버만 포함)
+	h.db.
+		Preload("Owner").
+		Preload("Members", "status = ?", model.MemberStatusActive.String()).
+		Preload("Members.User").
+		First(&workspace, workspace.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(h.toWorkspaceResponse(&workspace))
 }
@@ -196,6 +200,7 @@ func (h *WorkspaceHandler) GetWorkspace(c *fiber.Ctx) error {
 	var workspace model.Workspace
 	err = h.db.
 		Preload("Owner").
+		Preload("Members", "status = ?", model.MemberStatusActive.String()).
 		Preload("Members.User").
 		First(&workspace, workspaceID).Error
 
@@ -249,7 +254,13 @@ func (h *WorkspaceHandler) AddMembers(c *fiber.Ctx) error {
 
 	// 워크스페이스 조회
 	var workspace model.Workspace
-	if err := h.db.Preload("Members").First(&workspace, workspaceID).Error; err != nil {
+	// ACTIVE + PENDING 멤버 모두 로드 (중복 초대 방지용)
+	if err := h.db.
+		Preload("Members", "status IN ?", []string{
+			model.MemberStatusActive.String(),
+			model.MemberStatusPending.String(),
+		}).
+		First(&workspace, workspaceID).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "workspace not found",
 		})
