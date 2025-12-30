@@ -136,6 +136,7 @@ export default function WorkspaceDetailPage() {
         onSectionChange={setActiveSection}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onUpdateWorkspace={(name) => setWorkspace((prev) => (prev ? { ...prev, name } : null))}
       />
 
       {/* Main Content */}

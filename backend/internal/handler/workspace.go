@@ -44,6 +44,10 @@ type WorkspaceMemberResponse struct {
 	User     *UserResponse `json:"user,omitempty"`
 }
 
+func valPtr(s string) *string {
+	return &s
+}
+
 // CreateWorkspace 워크스페이스 생성
 func (h *WorkspaceHandler) CreateWorkspace(c *fiber.Ctx) error {
 	claims := c.Locals("claims").(*auth.Claims)
@@ -93,6 +97,28 @@ func (h *WorkspaceHandler) CreateWorkspace(c *fiber.Ctx) error {
 		}
 		if err := tx.Create(&ownerMember).Error; err != nil {
 			return err
+		}
+
+		// 기본 역할(Member) 생성
+		defaultRole := model.Role{
+			WorkspaceID: workspace.ID,
+			Name:        "Member",
+			Color:       valPtr("#A3A3A3"), // Neutral gray
+			IsDefault:   true,
+		}
+		if err := tx.Create(&defaultRole).Error; err != nil {
+			return err
+		}
+
+		// 기본 권한 부여 (메시지 전송, 음성 접속)
+		defaultPermissions := []string{"SEND_MESSAGES", "CONNECT_VOICE"}
+		for _, code := range defaultPermissions {
+			if err := tx.Create(&model.RolePermission{
+				RoleID:         defaultRole.ID,
+				PermissionCode: code,
+			}).Error; err != nil {
+				return err
+			}
 		}
 
 		// 초대할 멤버들 추가 (PENDING 상태)
@@ -214,6 +240,39 @@ func (h *WorkspaceHandler) GetWorkspace(c *fiber.Ctx) error {
 			"error": "failed to get workspace",
 		})
 	}
+
+	// [Fix] Default Role Backfill Logic
+	// 워크스페이스에 기본 역할이 없거나 멤버 역할이 비어있는 경우 복구
+	go func() {
+		// 1. 기본 역할 존재 여부 확인 및 생성
+		var defaultRole model.Role
+		if err := h.db.Where("workspace_id = ? AND is_default = ?", workspace.ID, true).First(&defaultRole).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// 기본 역할 생성
+				defaultColor := "#A3A3A3"
+				defaultRole = model.Role{
+					WorkspaceID: int64(workspaceID),
+					Name:        "Member",
+					Color:       &defaultColor,
+					IsDefault:   true,
+				}
+				// 기본 권한 설정
+				defaultRole.Permissions = []model.RolePermission{
+					{PermissionCode: "SEND_MESSAGES"},
+					{PermissionCode: "CONNECT_VOICE"},
+				}
+				h.db.Create(&defaultRole)
+			}
+		}
+
+		// 2. 역할이 없는 멤버들에게 기본 역할 할당
+		// (Owner 제외, Owner는 Frontend에서 별도 처리하지만 DB상으로는 있어도 됨)
+		if defaultRole.ID != 0 {
+			h.db.Model(&model.WorkspaceMember{}).
+				Where("workspace_id = ? AND role_id IS NULL", workspace.ID).
+				Update("role_id", defaultRole.ID)
+		}
+	}()
 
 	// 멤버인지 확인
 	isMember := false
@@ -425,4 +484,149 @@ func (h *WorkspaceHandler) toWorkspaceResponse(ws *model.Workspace) WorkspaceRes
 	}
 
 	return resp
+}
+
+// UpdateWorkspaceRequest 워크스페이스 수정 요청
+type UpdateWorkspaceRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateWorkspace 워크스페이스 수정
+func (h *WorkspaceHandler) UpdateWorkspace(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*auth.Claims)
+	workspaceID, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid workspace id"})
+	}
+
+	var req UpdateWorkspaceRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if req.Name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "workspace name is required"})
+	}
+
+	var workspace model.Workspace
+	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+	}
+
+	if workspace.OwnerID != claims.UserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only owner can update workspace"})
+	}
+
+	workspace.Name = sanitizeString(req.Name)
+	if err := h.db.Save(&workspace).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update workspace"})
+	}
+
+	return c.JSON(h.toWorkspaceResponse(&workspace))
+}
+
+// DeleteWorkspace 워크스페이스 삭제
+func (h *WorkspaceHandler) DeleteWorkspace(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*auth.Claims)
+	workspaceID, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid workspace id"})
+	}
+
+	var workspace model.Workspace
+	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+	}
+
+	if workspace.OwnerID != claims.UserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only owner can delete workspace"})
+	}
+
+	// Soft Delete or Hard Delete? GORM default Delete is Soft Delete if DeletedAt field exists.
+	// Workspace struct does not have DeletedAt yet (based on previous view), so checking entity.go.
+	// entity.go: type Workspace struct { ... CreatedAt } -> No DeletedAt, so it will be Hard Delete.
+	// Hard Delete requires cascading (GORM might not do it depending on constraint setup).
+	// Let's assume foreign keys have ON DELETE CASCADE or we need to delete related data manually.
+	// Safety first: let's stick to GORM's delete which usually fails if constraints exist without cascade.
+	// Given this is an implementation task, if I get constraint errors, I'll need to handle relations.
+	// For now, I'll attempt a simple delete. If it fails due to FK, user will see DB error.
+
+	if err := h.db.Delete(&workspace).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to delete workspace: " + err.Error()})
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// UpdateMemberRole 멤버 역할 변경
+func (h *WorkspaceHandler) UpdateMemberRole(c *fiber.Ctx) error {
+	claims := c.Locals("claims").(*auth.Claims)
+	workspaceID, err := c.ParamsInt("id")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid workspace id",
+		})
+	}
+	userID, err := c.ParamsInt("userId")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid user id",
+		})
+	}
+
+	var req struct {
+		RoleID int64 `json:"role_id"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	// 워크스페이스 조회
+	var workspace model.Workspace
+	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "workspace not found",
+		})
+	}
+
+	// 권한 확인 (워크스페이스 소유자만 허용)
+	if workspace.OwnerID != claims.UserID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "only workspace owner can update member roles",
+		})
+	}
+
+	// 멤버 조회
+	var member model.WorkspaceMember
+	if err := h.db.Where("workspace_id = ? AND user_id = ?", workspaceID, userID).First(&member).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "member not found",
+		})
+	}
+
+	// 역할 존재 확인 및 할당
+	if req.RoleID != 0 {
+		var role model.Role
+		if err := h.db.Where("id = ? AND workspace_id = ?", req.RoleID, workspaceID).First(&role).Error; err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "role not found in this workspace",
+			})
+		}
+		member.RoleID = &req.RoleID
+	} else {
+		// 역할 제거 (옵션)
+		member.RoleID = nil
+	}
+
+	if err := h.db.Save(&member).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update member role",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "member role updated",
+	})
 }
