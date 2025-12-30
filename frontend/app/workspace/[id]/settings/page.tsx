@@ -224,7 +224,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
     }
 
     return (
-        <div className="min-h-screen bg-stone-50">
+        <div className="flex-1 h-full overflow-y-auto bg-stone-50 custom-scrollbar">
             {/* Header */}
             <div className="h-16 bg-white border-b border-black/5 flex items-center justify-between px-6 sticky top-0 z-10">
                 <div className="flex items-center gap-4">

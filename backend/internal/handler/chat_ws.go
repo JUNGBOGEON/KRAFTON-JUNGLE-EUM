@@ -27,9 +27,11 @@ type ChatRoom struct {
 
 // ChatClient 채팅 클라이언트
 type ChatClient struct {
-	UserID   int64
-	Nickname string
-	Conn     *websocket.Conn
+	UserID      int64
+	Nickname    string
+	Conn        *websocket.Conn
+	Permissions []string
+	IsOwner     bool
 }
 
 // WSMessage WebSocket 메시지
@@ -85,21 +87,37 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 	nicknameInterface := c.Locals("nickname")
 
 	roomID, ok1 := roomIDInterface.(int64)
-	userID, ok2 := userIDInterface.(int64)
-	nickname, ok3 := nicknameInterface.(string)
+	workspaceID, ok2 := c.Locals("workspaceId").(int64)
+	userID, ok3 := userIDInterface.(int64)
+	nickname, ok4 := nicknameInterface.(string)
 
-	if !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 || !ok4 {
 		c.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"invalid session"}`))
 		c.Close()
 		return
 	}
 
+	// 권한 확인
+	var permissions []string
+	h.db.Table("role_permissions").
+		Joins("JOIN workspace_members ON workspace_members.role_id = role_permissions.role_id").
+		Where("workspace_members.workspace_id = ? AND workspace_members.user_id = ?", workspaceID, userID).
+		Pluck("permission_code", &permissions)
+
+	var isOwner bool
+	var workspace model.Workspace
+	if err := h.db.First(&workspace, workspaceID).Error; err == nil && workspace.OwnerID == userID {
+		isOwner = true
+	}
+
 	room := h.getOrCreateRoom(roomID)
 
 	client := &ChatClient{
-		UserID:   userID,
-		Nickname: nickname,
-		Conn:     c,
+		UserID:      userID,
+		Nickname:    nickname,
+		Conn:        c,
+		Permissions: permissions,
+		IsOwner:     isOwner,
 	}
 
 	// 클라이언트 등록
@@ -132,7 +150,22 @@ func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 
 		switch msg.Type {
 		case "message":
-			h.handleMessage(room, client, roomID, msg.Payload)
+			// 권한 체크
+			canSend := client.IsOwner
+			if !canSend {
+				for _, p := range client.Permissions {
+					if p == "SEND_MESSAGES" {
+						canSend = true
+						break
+					}
+				}
+			}
+
+			if canSend {
+				h.handleMessage(room, client, roomID, msg.Payload)
+			} else {
+				c.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"no permission to send messages"}`))
+			}
 		case "typing":
 			h.broadcastTyping(room, client, true)
 		case "stop_typing":

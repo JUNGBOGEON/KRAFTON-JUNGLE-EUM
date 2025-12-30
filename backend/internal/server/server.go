@@ -38,6 +38,8 @@ type Server struct {
 	calendarHandler       *handler.CalendarHandler
 	storageHandler        *handler.StorageHandler
 	roleHandler           *handler.RoleHandler
+	videoHandler          *handler.VideoHandler
+	whiteboardHandler     *handler.WhiteboardHandler
 	jwtManager            *auth.JWTManager
 }
 
@@ -75,6 +77,8 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	meetingHandler := handler.NewMeetingHandler(db)
 	calendarHandler := handler.NewCalendarHandler(db)
 	roleHandler := handler.NewRoleHandler(db)
+	videoHandler := handler.NewVideoHandler(cfg, db)
+	whiteboardHandler := handler.NewWhiteboardHandler(db)
 
 	// S3 서비스 초기화 (선택적)
 	var s3Service *storage.S3Service
@@ -107,6 +111,8 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		calendarHandler:       calendarHandler,
 		storageHandler:        storageHandler,
 		roleHandler:           roleHandler,
+		videoHandler:          videoHandler,
+		whiteboardHandler:     whiteboardHandler,
 		jwtManager:            jwtManager,
 	}
 }
@@ -338,6 +344,7 @@ func (s *Server) SetupRoutes() {
 		s.db.Table("users").Select("nickname").Where("id = ?", claims.UserID).Scan(&user)
 
 		c.Locals("roomId", int64(roomID))
+		c.Locals("workspaceId", int64(workspaceID))
 		c.Locals("userId", claims.UserID)
 		c.Locals("nickname", user.Nickname)
 

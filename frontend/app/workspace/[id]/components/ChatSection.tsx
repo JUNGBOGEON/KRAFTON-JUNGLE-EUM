@@ -8,6 +8,7 @@ interface ChatSectionProps {
   workspaceId: number;
   roomId: number;
   onRoomTitleChange?: (title: string) => void;
+  canSendMessages?: boolean;
 }
 
 interface TypingUser {
@@ -30,7 +31,7 @@ interface WSMessage {
 const WS_BASE_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'ws://localhost:8080';
 const MESSAGES_PER_PAGE = 30;
 
-export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: ChatSectionProps) {
+export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, canSendMessages = true }: ChatSectionProps) {
   const { user } = useAuth();
 
   // 메시지 관련 상태
@@ -223,8 +224,8 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
                     // 내 메시지: 같은 내용의 optimistic 메시지(임시 ID) 찾아서 대체
                     const optimisticIndex = prev.findIndex(
                       (m) => m.sender_id === userIdRef.current &&
-                             m.message === newMsg.message &&
-                             m.id > 1000000000000 // 임시 ID는 Date.now()로 생성되어 매우 큰 값
+                        m.message === newMsg.message &&
+                        m.id > 1000000000000 // 임시 ID는 Date.now()로 생성되어 매우 큰 값
                     );
                     if (optimisticIndex !== -1) {
                       const updated = [...prev];
@@ -274,7 +275,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
         }
       };
 
-      ws.onerror = () => {};
+      ws.onerror = () => { };
     };
 
     connectWebSocket();
@@ -399,11 +400,10 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
       {/* 최신 메시지로 이동 버튼 */}
       <button
         onClick={() => scrollToBottom("smooth")}
-        className={`absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-full shadow-lg border border-blue-200 transition-all duration-300 ease-out hover:bg-blue-50 hover:border-blue-300 hover:scale-105 ${
-          showScrollButton
+        className={`absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-full shadow-lg border border-blue-200 transition-all duration-300 ease-out hover:bg-blue-50 hover:border-blue-300 hover:scale-105 ${showScrollButton
             ? "opacity-100 translate-y-0"
             : "opacity-0 translate-y-4 pointer-events-none"
-        }`}
+          }`}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
@@ -550,19 +550,19 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
             onKeyDown={handleKeyDown}
             onCompositionStart={() => { isComposingRef.current = true; }}
             onCompositionEnd={() => { isComposingRef.current = false; }}
-            placeholder="메시지 입력..."
+            placeholder={canSendMessages ? "메시지 입력..." : "메시지 전송 권한이 없습니다"}
             rows={1}
-            className="flex-1 bg-transparent resize-none text-sm text-black placeholder:text-black/40 focus:outline-none py-1.5 max-h-24"
+            disabled={!canSendMessages}
+            className="flex-1 bg-transparent resize-none text-sm text-black placeholder:text-black/40 focus:outline-none py-1.5 max-h-24 disabled:cursor-not-allowed"
           />
           <button
             onClick={handleSend}
-            disabled={!message.trim()}
-            className={`p-2 rounded-full transition-all ${
-              message.trim() ? "bg-black text-white hover:bg-black/80" : "bg-black/10 text-black/30"
-            }`}
+            disabled={!message.trim() || !canSendMessages}
+            className={`p-2 rounded-full transition-all ${message.trim() && canSendMessages ? "bg-black text-white hover:bg-black/80" : "bg-black/10 text-black/30"
+              }`}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>
