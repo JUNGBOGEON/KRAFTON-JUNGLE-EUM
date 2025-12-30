@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { apiClient, WorkspaceFile } from "../../../lib/api";
 
 interface StorageSectionProps {
@@ -35,11 +35,36 @@ interface FileSystemDirectoryReader {
   readEntries: (callback: (entries: FileSystemEntry[]) => void) => void;
 }
 
-const getFileIcon = (file: WorkspaceFile) => {
+// 파일 타입별 색상 설정 - 미니멀하게
+const FILE_TYPE_CONFIG = {
+  folder: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  image: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  document: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  video: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  audio: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  code: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+  default: { bgColor: "bg-gray-100", textColor: "text-gray-500" },
+};
+
+const getFileTypeConfig = (file: WorkspaceFile) => {
+  if (file.type === "FOLDER") return FILE_TYPE_CONFIG.folder;
+  const mimeType = file.mime_type || "";
+  if (mimeType.startsWith("image/")) return FILE_TYPE_CONFIG.image;
+  if (mimeType.startsWith("video/")) return FILE_TYPE_CONFIG.video;
+  if (mimeType.startsWith("audio/")) return FILE_TYPE_CONFIG.audio;
+  if (mimeType.includes("pdf") || mimeType.includes("document") || mimeType.includes("word")) return FILE_TYPE_CONFIG.document;
+  if (mimeType.includes("javascript") || mimeType.includes("json") || mimeType.includes("html") || mimeType.includes("css")) return FILE_TYPE_CONFIG.code;
+  return FILE_TYPE_CONFIG.default;
+};
+
+const getFileIcon = (file: WorkspaceFile, size: "sm" | "md" | "lg" = "md") => {
+  const sizeClasses = { sm: "w-4 h-4", md: "w-5 h-5", lg: "w-6 h-6" };
+  const iconSize = sizeClasses[size];
+
   if (file.type === "FOLDER") {
     return (
-      <svg className="w-6 h-6 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+      <svg className={`${iconSize} text-amber-500`} fill="currentColor" viewBox="0 0 24 24">
+        <path d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293L12 7h7a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
       </svg>
     );
   }
@@ -47,28 +72,43 @@ const getFileIcon = (file: WorkspaceFile) => {
   const mimeType = file.mime_type || "";
   if (mimeType.startsWith("image/")) {
     return (
-      <svg className="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={`${iconSize} text-pink-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
       </svg>
     );
   }
-  if (mimeType.includes("pdf") || mimeType.includes("document")) {
+  if (mimeType.includes("pdf")) {
     return (
-      <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={`${iconSize} text-red-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-6 4h4" />
       </svg>
     );
   }
-  if (mimeType.includes("video")) {
+  if (mimeType.includes("document") || mimeType.includes("word")) {
     return (
-      <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className={`${iconSize} text-blue-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    );
+  }
+  if (mimeType.startsWith("video/")) {
+    return (
+      <svg className={`${iconSize} text-emerald-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+      </svg>
+    );
+  }
+  if (mimeType.startsWith("audio/")) {
+    return (
+      <svg className={`${iconSize} text-violet-500`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
       </svg>
     );
   }
 
   return (
-    <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className={`${iconSize} text-gray-400`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
     </svg>
   );
@@ -85,14 +125,39 @@ const formatDate = (dateString: string) => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return "오늘";
+  if (diffMins < 1) return "방금 전";
+  if (diffMins < 60) return `${diffMins}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
   if (diffDays === 1) return "어제";
   if (diffDays < 7) return `${diffDays}일 전`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}주 전`;
-  return date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+  return date.toLocaleDateString("ko-KR", { year: "numeric", month: "short", day: "numeric" });
 };
+
+// 파일 확장자 추출
+const getFileExtension = (filename: string) => {
+  const parts = filename.split(".");
+  return parts.length > 1 ? parts.pop()?.toUpperCase() : "";
+};
+
+// 스켈레톤 로딩 컴포넌트
+const SkeletonLoader = () => (
+  <div className="animate-pulse space-y-3">
+    {[1, 2, 3, 4, 5].map((i) => (
+      <div key={i} className="flex items-center gap-4 p-4">
+        <div className="w-10 h-10 bg-gray-100 rounded-xl" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 bg-gray-100 rounded-lg w-1/3" />
+          <div className="h-3 bg-gray-50 rounded-lg w-1/4" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 export default function StorageSection({ workspaceId }: StorageSectionProps) {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
@@ -108,6 +173,10 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameTarget, setRenameTarget] = useState<WorkspaceFile | null>(null);
   const [newName, setNewName] = useState("");
+
+  // 이미지 미리보기 모달 상태
+  const [previewImage, setPreviewImage] = useState<WorkspaceFile | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   // New Dropdown State
   const [showNewDropdown, setShowNewDropdown] = useState(false);
@@ -155,18 +224,62 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // 파일 통계 계산
+  const fileStats = useMemo(() => {
+    const stats = {
+      totalFiles: 0,
+      totalFolders: 0,
+      totalSize: 0,
+      imageCount: 0,
+      documentCount: 0,
+      videoCount: 0,
+      otherCount: 0,
+    };
+
+    files.forEach((file) => {
+      if (file.type === "FOLDER") {
+        stats.totalFolders++;
+      } else {
+        stats.totalFiles++;
+        stats.totalSize += file.file_size || 0;
+
+        const mimeType = file.mime_type || "";
+        if (mimeType.startsWith("image/")) stats.imageCount++;
+        else if (mimeType.includes("pdf") || mimeType.includes("document")) stats.documentCount++;
+        else if (mimeType.startsWith("video/")) stats.videoCount++;
+        else stats.otherCount++;
+      }
+    });
+
+    return stats;
+  }, [files]);
+
   const handleFileClick = async (file: WorkspaceFile) => {
     if (file.type === "FOLDER") {
       setCurrentFolderId(file.id);
       setSelectedFile(null);
     } else {
       setSelectedFile(file);
-      try {
-        const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
-        window.open(url, "_blank");
-      } catch (error) {
-        if (file.file_url) {
-          window.open(file.file_url, "_blank");
+      const isImage = file.mime_type?.startsWith("image/");
+
+      if (isImage) {
+        // 이미지 파일인 경우 미리보기 모달 표시
+        setPreviewImage(file);
+        try {
+          const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
+          setPreviewImageUrl(url);
+        } catch (error) {
+          setPreviewImageUrl(file.file_url || null);
+        }
+      } else {
+        // 이미지가 아닌 경우 새 탭에서 열기
+        try {
+          const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
+          window.open(url, "_blank");
+        } catch (error) {
+          if (file.file_url) {
+            window.open(file.file_url, "_blank");
+          }
         }
       }
     }
@@ -419,29 +532,21 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
     processAndUploadFiles(fileList);
   };
 
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-black/20 border-t-black/60 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div
-      className="h-full flex flex-col relative"
+      className="h-full flex flex-col relative bg-white"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {/* Drag Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 bg-black/5 border-2 border-dashed border-black/30 z-50 flex items-center justify-center rounded-xl pointer-events-none backdrop-blur-[1px]">
-          <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex flex-col items-center animate-bounce">
-            <svg className="w-10 h-10 text-black mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        <div className="absolute inset-0 bg-gray-900/5 border-2 border-dashed border-gray-300 z-50 flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <svg className="w-8 h-8 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
-            <p className="font-semibold text-lg text-black">여기에 파일을 놓으세요</p>
+            <p className="text-sm text-gray-500">파일을 놓으세요</p>
           </div>
         </div>
       )}
@@ -464,70 +569,69 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
       />
 
       {/* Header */}
-      <div className="px-8 py-5 border-b border-black/5">
+      <div className="px-6 py-4 border-b border-gray-100">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-semibold text-black">저장소</h1>
-            <p className="text-sm text-black/40 mt-0.5">문서, 회의록, 리소스 관리</p>
+            <h1 className="text-lg font-semibold text-gray-900">저장소</h1>
+            {files.length > 0 && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {fileStats.totalFolders > 0 && `${fileStats.totalFolders}개 폴더`}
+                {fileStats.totalFolders > 0 && fileStats.totalFiles > 0 && " · "}
+                {fileStats.totalFiles > 0 && `${fileStats.totalFiles}개 파일`}
+              </p>
+            )}
           </div>
 
-          {/* New Button Dropdown */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setShowNewDropdown(!showNewDropdown)}
               disabled={isUploading}
-              className={`flex items-center gap-2 px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors disabled:opacity-50 ${showNewDropdown ? 'bg-black/80 ring-2 ring-black/20' : ''}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
             >
               {isUploading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {uploadStatus || `${uploadProgress}%`}
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>{uploadProgress}%</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                   새로 만들기
-                  <svg className={`w-3 h-3 transition-transform ${showNewDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
                 </>
               )}
             </button>
 
-            {/* Dropdown Menu */}
             {showNewDropdown && !isUploading && (
-              <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-black/5 py-2 z-50 transform origin-top-right transition-all">
+              <div className="absolute top-full right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
                 <button
                   onClick={() => {
                     setShowCreateFolderModal(true);
                     setShowNewDropdown(false);
                   }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z" />
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                   </svg>
                   새 폴더
                 </button>
-                <div className="my-1 border-t border-black/5" />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                   </svg>
                   파일 업로드
                 </button>
                 <button
                   onClick={() => folderInputRef.current?.click()}
-                  className="w-full text-left px-4 py-2.5 text-sm text-black hover:bg-black/5 flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
-                  <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2.166 6.834A2 2 0 0 1 4 5h8a1 1 0 0 1 1 1v1h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6.834Z" opacity="0.5" />
-                    <path d="M4 9h16v10H4V9Z" />
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                   </svg>
                   폴더 업로드
                 </button>
@@ -536,203 +640,215 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
           </div>
         </div>
 
+        {/* Upload Progress */}
+        {isUploading && (
+          <div className="mb-3">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <span>{uploadStatus}</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-gray-900 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          </div>
+        )}
+
         {/* Upload Error */}
         {uploadError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 flex items-center justify-between shadow-sm">
+          <div className="mb-3 px-3 py-2 bg-red-50 rounded-lg text-sm text-red-600 flex items-center justify-between">
             <span>{uploadError}</span>
-            <button
-              onClick={() => setUploadError(null)}
-              className="ml-2 text-red-400 hover:text-red-600"
-            >
-              ✕
+            <button onClick={() => setUploadError(null)} className="text-red-400 hover:text-red-600">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         )}
 
         {/* Search & View Toggle */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-md">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
             <input
               type="text"
-              placeholder="파일 검색..."
+              placeholder="검색..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-black/[0.03] border-0 rounded-lg text-sm placeholder:text-black/30 focus:outline-none focus:ring-2 focus:ring-black/10 transition-all"
+              className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-100 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:border-gray-200"
             />
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-black/30"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
-          <div className="flex items-center bg-black/[0.03] rounded-lg p-1">
+          <div className="flex items-center border border-gray-100 rounded-lg">
             <button
               onClick={() => setViewMode("list")}
-              className={`p-2 rounded-md transition-all ${viewMode === "list"
-                ? "bg-white text-black shadow-sm"
-                : "text-black/50 hover:text-black/70"
-                }`}
+              className={`p-1.5 ${viewMode === "list" ? "text-gray-900 bg-gray-50" : "text-gray-400"}`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
               </svg>
             </button>
             <button
               onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-md transition-all ${viewMode === "grid"
-                ? "bg-white text-black shadow-sm"
-                : "text-black/50 hover:text-black/70"
-                }`}
+              className={`p-1.5 ${viewMode === "grid" ? "text-gray-900 bg-gray-50" : "text-gray-400"}`}
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
               </svg>
             </button>
           </div>
         </div>
 
         {/* Breadcrumb */}
-        <div className="flex items-center gap-1 mt-4 text-sm">
-          <button
-            onClick={() => handleBreadcrumbClick(undefined)}
-            className={`transition-colors ${!currentFolderId ? "text-black font-medium" : "text-black/50 hover:text-black"
-              }`}
-          >
-            저장소
-          </button>
+        {currentFolderId && (
+          <div className="flex items-center gap-1 mt-3 text-sm">
+            <button
+              onClick={() => handleBreadcrumbClick(undefined)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              저장소
+            </button>
           {breadcrumbs.map((folder, index) => (
             <div key={folder.id} className="flex items-center gap-1">
-              <svg className="w-4 h-4 text-black/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <span className="text-gray-300">/</span>
               <button
                 onClick={() => handleBreadcrumbClick(folder.id)}
-                className={`${index === breadcrumbs.length - 1
-                  ? "text-black font-medium"
-                  : "text-black/50 hover:text-black"
-                  } transition-colors`}
+                className={index === breadcrumbs.length - 1 ? "text-gray-900" : "text-gray-400 hover:text-gray-600"}
               >
                 {folder.name}
               </button>
             </div>
           ))}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* File List */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {viewMode === "list" ? (
-          <div className="space-y-1">
-            {filteredFiles.map((file) => (
-              <div
-                key={file.id}
-                className={`w-full flex items-center gap-4 p-3 rounded-xl transition-all text-left group ${selectedFile?.id === file.id
-                  ? "bg-black/5"
-                  : "hover:bg-black/[0.02]"
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {isLoading ? (
+          <SkeletonLoader />
+        ) : viewMode === "list" ? (
+          <div className="space-y-0.5">
+            {filteredFiles.map((file) => {
+              const isImage = file.mime_type?.startsWith("image/");
+              return (
+                <div
+                  key={file.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer group ${
+                    selectedFile?.id === file.id ? "bg-gray-100" : "hover:bg-gray-50"
                   }`}
-              >
-                <button
                   onClick={() => handleFileClick(file)}
-                  className="flex items-center gap-4 flex-1 min-w-0"
                 >
-                  {getFileIcon(file)}
+                  {/* Icon */}
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {isImage && file.file_url ? (
+                      <img src={file.file_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      getFileIcon(file, "md")
+                    )}
+                  </div>
+
+                  {/* File Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-black truncate">{file.name}</p>
-                    <p className="text-xs text-black/40">
-                      {file.file_size ? `${formatFileSize(file.file_size)} · ` : ""}
+                    <p className="text-sm text-gray-900 truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {file.file_size ? formatFileSize(file.file_size) : ""}
+                      {file.file_size && " · "}
                       {formatDate(file.created_at)}
-                      {file.uploader?.nickname && ` · ${file.uploader.nickname}`}
                     </p>
                   </div>
-                </button>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => openRenameModal(file)}
-                    className="p-2 rounded-lg hover:bg-black/5 text-black/30 hover:text-black/60 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteFile(file)}
-                    className="p-2 rounded-lg hover:bg-red-50 text-black/30 hover:text-red-500 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openRenameModal(file); }}
+                      className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
+                      className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {filteredFiles.map((file) => (
-              <div
-                key={file.id}
-                className={`p-4 rounded-xl transition-all text-left group relative ${selectedFile?.id === file.id
-                  ? "bg-black/5 ring-2 ring-black/10"
-                  : "bg-black/[0.02] hover:bg-black/[0.04]"
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {filteredFiles.map((file) => {
+              const isImage = file.mime_type?.startsWith("image/");
+              return (
+                <div
+                  key={file.id}
+                  className={`group relative rounded-lg border cursor-pointer ${
+                    selectedFile?.id === file.id ? "border-gray-300 bg-gray-50" : "border-gray-100 hover:border-gray-200 hover:bg-gray-50"
                   }`}
-              >
-                <button
                   onClick={() => handleFileClick(file)}
-                  className="w-full text-left"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center mb-3 shadow-sm">
-                    {getFileIcon(file)}
+                  {/* Thumbnail */}
+                  <div className="aspect-square bg-gray-50 rounded-t-lg flex items-center justify-center overflow-hidden">
+                    {isImage && file.file_url ? (
+                      <img src={file.file_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    ) : (
+                      getFileIcon(file, "lg")
+                    )}
                   </div>
-                  <p className="font-medium text-sm text-black truncate">{file.name}</p>
-                  <p className="text-xs text-black/40 mt-1">{formatDate(file.created_at)}</p>
-                </button>
-                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => openRenameModal(file)}
-                    className="p-1.5 rounded-lg bg-white/80 hover:bg-white text-black/40 hover:text-black/60 transition-colors shadow-sm"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteFile(file)}
-                    className="p-1.5 rounded-lg bg-white/80 hover:bg-red-50 text-black/40 hover:text-red-500 transition-colors shadow-sm"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {/* Info */}
+                  <div className="p-2.5">
+                    <p className="text-sm text-gray-900 truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{formatDate(file.created_at)}</p>
+                  </div>
+                  {/* Hover Actions */}
+                  <div className="absolute top-2 right-2 hidden group-hover:flex gap-0.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openRenameModal(file); }}
+                      className="p-1 rounded bg-white text-gray-500 hover:text-gray-700 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
+                      className="p-1 rounded bg-white text-gray-500 hover:text-red-500 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {filteredFiles.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center">
-            <div className="w-20 h-20 rounded-full bg-black/5 flex items-center justify-center mb-4">
-              <svg className="w-10 h-10 text-black/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+        {/* Empty State */}
+        {!isLoading && filteredFiles.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-black/60 mb-1">
-              {searchQuery ? "검색 결과 없음" : "파일이 없습니다"}
-            </h3>
-            <p className="text-sm text-black/40 mb-4">
-              {searchQuery
-                ? "다른 검색어로 시도해보세요"
-                : "파일을 드래그해서 업로드하거나 새로 만들기 버튼을 누르세요"}
+            <p className="text-sm text-gray-500 mb-4">
+              {searchQuery ? `"${searchQuery}" 검색 결과 없음` : "파일이 없습니다"}
             </p>
             {!searchQuery && (
               <button
-                onClick={() => setShowNewDropdown(true)}
-                className="px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-black/80 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm text-gray-900 hover:underline"
               >
-                + 새로 만들기
+                파일 업로드
               </button>
             )}
           </div>
@@ -741,32 +857,33 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
 
       {/* Create Folder Modal */}
       {showCreateFolderModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl transform transition-all">
-            <h2 className="text-xl font-semibold text-black mb-4">새 폴더 만들기</h2>
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="폴더 이름"
-              className="w-full px-4 py-3 border border-black/10 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-black/10"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-            />
-            <div className="flex gap-3">
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm mx-4 shadow-xl">
+            <div className="p-4 border-b border-gray-100">
+              <h2 className="text-base font-medium text-gray-900">새 폴더</h2>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="폴더 이름"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-300"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+              />
+            </div>
+            <div className="px-4 pb-4 flex gap-2 justify-end">
               <button
-                onClick={() => {
-                  setShowCreateFolderModal(false);
-                  setNewFolderName("");
-                }}
-                className="flex-1 py-3 text-black/60 hover:text-black transition-colors rounded-lg hover:bg-black/5"
+                onClick={() => { setShowCreateFolderModal(false); setNewFolderName(""); }}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900"
               >
                 취소
               </button>
               <button
                 onClick={handleCreateFolder}
                 disabled={!newFolderName.trim() || isCreating}
-                className="flex-1 py-3 bg-black text-white rounded-lg hover:bg-black/80 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
               >
                 {isCreating ? "생성 중..." : "만들기"}
               </button>
@@ -777,37 +894,99 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
 
       {/* Rename Modal */}
       {showRenameModal && renameTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-xl font-semibold text-black mb-4">이름 변경</h2>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="새 이름"
-              className="w-full px-4 py-3 border border-black/10 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-black/10"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && handleRename()}
-            />
-            <div className="flex gap-3">
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm mx-4 shadow-xl">
+            <div className="p-4 border-b border-gray-100">
+              <h2 className="text-base font-medium text-gray-900">이름 변경</h2>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="새 이름"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-300"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleRename()}
+              />
+            </div>
+            <div className="px-4 pb-4 flex gap-2 justify-end">
               <button
-                onClick={() => {
-                  setShowRenameModal(false);
-                  setRenameTarget(null);
-                  setNewName("");
-                }}
-                className="flex-1 py-3 text-black/60 hover:text-black transition-colors rounded-lg hover:bg-black/5"
+                onClick={() => { setShowRenameModal(false); setRenameTarget(null); setNewName(""); }}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900"
               >
                 취소
               </button>
               <button
                 onClick={handleRename}
                 disabled={!newName.trim() || isCreating}
-                className="flex-1 py-3 bg-black text-white rounded-lg hover:bg-black/80 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
               >
                 {isCreating ? "변경 중..." : "변경"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+          onClick={() => { setPreviewImage(null); setPreviewImageUrl(null); }}
+        >
+          {/* Close Button */}
+          <button
+            onClick={() => { setPreviewImage(null); setPreviewImageUrl(null); }}
+            className="absolute top-4 right-4 p-2 text-white/70 hover:text-white transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* File Name */}
+          <div className="absolute top-4 left-4 text-white/90 text-sm font-medium max-w-[60%] truncate">
+            {previewImage.name}
+          </div>
+
+          {/* Image Container */}
+          <div
+            className="max-w-[90vw] max-h-[85vh] flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {previewImageUrl ? (
+              <img
+                src={previewImageUrl}
+                alt={previewImage.name}
+                className="max-w-full max-h-[85vh] object-contain rounded-lg"
+              />
+            ) : (
+              <div className="flex items-center justify-center w-32 h-32 bg-white/10 rounded-lg">
+                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Info */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 text-sm text-white/70">
+            {previewImage.file_size && (
+              <span>{formatFileSize(previewImage.file_size)}</span>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (previewImageUrl) {
+                  window.open(previewImageUrl, "_blank");
+                }
+              }}
+              className="flex items-center gap-1 hover:text-white transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              새 탭에서 열기
+            </button>
           </div>
         </div>
       )}
