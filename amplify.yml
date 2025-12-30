@@ -1,0 +1,18 @@
+version: 1
+applications:
+  - appRoot: frontend  # 👈 여기에 실제 프론트엔드 폴더 이름을 적으세요!
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
