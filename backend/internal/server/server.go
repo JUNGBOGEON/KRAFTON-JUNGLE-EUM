@@ -344,6 +344,7 @@ func (s *Server) SetupRoutes() {
 		s.db.Table("users").Select("nickname").Where("id = ?", claims.UserID).Scan(&user)
 
 		c.Locals("roomId", int64(roomID))
+		c.Locals("workspaceId", int64(workspaceID))
 		c.Locals("userId", claims.UserID)
 		c.Locals("nickname", user.Nickname)
 

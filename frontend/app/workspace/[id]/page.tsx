@@ -115,7 +115,17 @@ export default function WorkspaceDetailPage() {
     // 채팅방 처리
     if (activeSection.startsWith("chat-")) {
       const roomId = parseInt(activeSection.replace("chat-", ""), 10);
-      return <ChatSection workspaceId={workspace.id} roomId={roomId} onRoomTitleChange={setCurrentChatRoomTitle} />;
+      const myMember = workspace.members?.find(m => m.user_id === user?.id);
+      const canSendMessages = workspace.owner_id === user?.id || myMember?.role?.permissions?.includes("SEND_MESSAGES");
+
+      return (
+        <ChatSection
+          workspaceId={workspace.id}
+          roomId={roomId}
+          onRoomTitleChange={setCurrentChatRoomTitle}
+          canSendMessages={canSendMessages}
+        />
+      );
     }
 
     switch (activeSection) {

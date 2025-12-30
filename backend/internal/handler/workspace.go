@@ -42,6 +42,15 @@ type WorkspaceMemberResponse struct {
 	Status   string        `json:"status"`
 	JoinedAt string        `json:"joined_at"`
 	User     *UserResponse `json:"user,omitempty"`
+	Role     *RoleResponse `json:"role,omitempty"`
+}
+
+type RoleResponse struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Color       *string  `json:"color,omitempty"`
+	IsDefault   bool     `json:"is_default"`
+	Permissions []string `json:"permissions,omitempty"`
 }
 
 func valPtr(s string) *string {
@@ -175,6 +184,8 @@ func (h *WorkspaceHandler) CreateWorkspace(c *fiber.Ctx) error {
 		Preload("Owner").
 		Preload("Members", "status = ?", model.MemberStatusActive.String()).
 		Preload("Members.User").
+		Preload("Members.Role").
+		Preload("Members.Role.Permissions").
 		First(&workspace, workspace.ID)
 
 	return c.Status(fiber.StatusCreated).JSON(h.toWorkspaceResponse(&workspace))
@@ -193,6 +204,8 @@ func (h *WorkspaceHandler) GetMyWorkspaces(c *fiber.Ctx) error {
 		Preload("Owner").
 		Preload("Members", "status = ?", model.MemberStatusActive.String()).
 		Preload("Members.User").
+		Preload("Members.Role").
+		Preload("Members.Role.Permissions").
 		Order("workspaces.created_at DESC").
 		Find(&workspaces).Error
 
@@ -228,6 +241,8 @@ func (h *WorkspaceHandler) GetWorkspace(c *fiber.Ctx) error {
 		Preload("Owner").
 		Preload("Members", "status = ?", model.MemberStatusActive.String()).
 		Preload("Members.User").
+		Preload("Members.Role").
+		Preload("Members.Role.Permissions").
 		First(&workspace, workspaceID).Error
 
 	if err == gorm.ErrRecordNotFound {
@@ -478,6 +493,19 @@ func (h *WorkspaceHandler) toWorkspaceResponse(ws *model.Workspace) WorkspaceRes
 					Email:      m.User.Email,
 					Nickname:   m.User.Nickname,
 					ProfileImg: m.User.ProfileImg,
+				}
+			}
+			if m.Role != nil && m.Role.ID != 0 {
+				perms := make([]string, len(m.Role.Permissions))
+				for j, p := range m.Role.Permissions {
+					perms[j] = p.PermissionCode
+				}
+				resp.Members[i].Role = &RoleResponse{
+					ID:          m.Role.ID,
+					Name:        m.Role.Name,
+					Color:       m.Role.Color,
+					IsDefault:   m.Role.IsDefault,
+					Permissions: perms,
 				}
 			}
 		}

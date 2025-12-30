@@ -31,6 +31,13 @@ interface WorkspaceMember {
   status: 'PENDING' | 'ACTIVE'; // Required field with union type
   joined_at: string;
   user?: UserSearchResult;
+  role?: {
+    id: number;
+    name: string;
+    color?: string;
+    is_default: boolean;
+    permissions: string[];
+  };
 }
 
 interface Workspace {
