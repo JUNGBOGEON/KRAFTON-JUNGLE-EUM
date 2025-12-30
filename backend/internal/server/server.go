@@ -37,8 +37,7 @@ type Server struct {
 	meetingHandler        *handler.MeetingHandler
 	calendarHandler       *handler.CalendarHandler
 	storageHandler        *handler.StorageHandler
-	videoHandler          *handler.VideoHandler
-	whiteboardHandler     *handler.WhiteboardHandler
+	roleHandler           *handler.RoleHandler
 	jwtManager            *auth.JWTManager
 }
 
@@ -75,6 +74,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	chatWSHandler := handler.NewChatWSHandler(db)
 	meetingHandler := handler.NewMeetingHandler(db)
 	calendarHandler := handler.NewCalendarHandler(db)
+	roleHandler := handler.NewRoleHandler(db)
 
 	// S3 서비스 초기화 (선택적)
 	var s3Service *storage.S3Service
@@ -106,8 +106,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		meetingHandler:        meetingHandler,
 		calendarHandler:       calendarHandler,
 		storageHandler:        storageHandler,
-		videoHandler:          handler.NewVideoHandler(cfg, db),
-		whiteboardHandler:     handler.NewWhiteboardHandler(db),
+		roleHandler:           roleHandler,
 		jwtManager:            jwtManager,
 	}
 }
@@ -187,7 +186,17 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Get("/", s.workspaceHandler.GetMyWorkspaces)
 	workspaceGroup.Get("/:id", s.workspaceHandler.GetWorkspace)
 	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
+	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
 	workspaceGroup.Delete("/:id/leave", s.workspaceHandler.LeaveWorkspace)
+	workspaceGroup.Put("/:id/members/:userId/role", s.workspaceHandler.UpdateMemberRole)
+	workspaceGroup.Put("/:id", s.workspaceHandler.UpdateWorkspace)
+	workspaceGroup.Delete("/:id", s.workspaceHandler.DeleteWorkspace)
+
+	// Role 라우트 (워크스페이스 하위)
+	workspaceGroup.Get("/:id/roles", s.roleHandler.GetRoles)
+	workspaceGroup.Post("/:id/roles", s.roleHandler.CreateRole)
+	workspaceGroup.Put("/:id/roles/:roleId", s.roleHandler.UpdateRole)
+	workspaceGroup.Delete("/:id/roles/:roleId", s.roleHandler.DeleteRole)
 
 	// Chat 라우트 (워크스페이스 하위) - 레거시
 	workspaceGroup.Get("/:workspaceId/chats", s.chatHandler.GetWorkspaceChats)

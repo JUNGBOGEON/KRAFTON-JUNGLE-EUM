@@ -130,6 +130,16 @@ func (h *NotificationHandler) AcceptInvitation(c *fiber.Ctx) error {
 		})
 	}
 
+	// 기본 역할(Default Role) 찾기 및 할당
+	var defaultRole model.Role
+	if err := tx.Where("workspace_id = ? AND is_default = ?", workspaceID, true).First(&defaultRole).Error; err == nil {
+		// 기본 역할이 있으면 할당
+		if err := tx.Model(&member).Update("role_id", defaultRole.ID).Error; err != nil {
+			// 역할 할당 실패는 로그만 남기고 계속 진행 (치명적이지 않음)
+			fmt.Printf("Failed to assign default role to user %d in workspace %d: %v\n", claims.UserID, workspaceID, err)
+		}
+	}
+
 	tx.Commit()
 
 	return c.JSON(fiber.Map{

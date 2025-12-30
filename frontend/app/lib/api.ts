@@ -52,6 +52,15 @@ interface CreateWorkspaceRequest {
   member_ids?: number[];
 }
 
+interface Role {
+  id: number;
+  workspace_id: number;
+  name: string;
+  color?: string;
+  is_default: boolean;
+  permissions?: { permission_code: string }[];
+}
+
 // 채팅 관련 타입
 interface ChatMessage {
   id: number;
@@ -384,6 +393,53 @@ class ApiClient {
     });
   }
 
+  // 워크스페이스 수정
+  async updateWorkspace(workspaceId: number, name: string): Promise<Workspace> {
+    return this.request<Workspace>(`/api/workspaces/${workspaceId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  // 워크스페이스 삭제
+  async deleteWorkspace(workspaceId: number): Promise<void> {
+    await this.request(`/api/workspaces/${workspaceId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ========== 역할(Role) API ==========
+  async getRoles(workspaceId: number): Promise<Role[]> {
+    return this.request<Role[]>(`/api/workspaces/${workspaceId}/roles`);
+  }
+
+  async createRole(workspaceId: number, name: string, color?: string, permissions?: string[]): Promise<Role> {
+    return this.request<Role>(`/api/workspaces/${workspaceId}/roles`, {
+      method: "POST",
+      body: JSON.stringify({ name, color, permissions }),
+    });
+  }
+
+  async updateRole(workspaceId: number, roleId: number, name: string, color?: string, permissions?: string[]): Promise<Role> {
+    return this.request<Role>(`/api/workspaces/${workspaceId}/roles/${roleId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, color, permissions }),
+    });
+  }
+
+  async deleteRole(workspaceId: number, roleId: number): Promise<void> {
+    await this.request(`/api/workspaces/${workspaceId}/roles/${roleId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateMemberRole(workspaceId: number, userId: number, roleId: number): Promise<void> {
+    await this.request(`/api/workspaces/${workspaceId}/members/${userId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role_id: roleId }),
+    });
+  }
+
   // ========== 채팅 API ==========
   async getWorkspaceChats(workspaceId: number, limit = 50, offset = 0): Promise<ChatsResponse> {
     return this.request<ChatsResponse>(
@@ -666,4 +722,6 @@ export type {
   // Notification
   Notification,
   NotificationsResponse,
+  // Role
+  Role,
 };
