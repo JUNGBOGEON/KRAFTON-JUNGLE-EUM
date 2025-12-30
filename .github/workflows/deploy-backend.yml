@@ -61,7 +61,7 @@ jobs:
             > task-definition.json
 
       # 6. Task Definition에 새 이미지 ID 끼워넣기 (Render)
-      # 주의: 여기는 deploy가 아니라 render 액션을 써야 합니다!
+      # [수정] deploy 액션이 아니라 render 액션을 써야 합니다!
       - name: Fill in the new image ID in the task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -71,7 +71,7 @@ jobs:
           image: ${{ steps.build-image.outputs.image }}
 
       # 7. ECS 서비스 배포 (Deploy)
-      # 주의: 여기서 v1을 쓰면 에러가 납니다. v2로 수정했습니다.
+      # [수정] v1 -> v2 로 변경 (enableFaultInjection 에러 해결)
       - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
