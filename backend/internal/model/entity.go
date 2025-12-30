@@ -119,12 +119,13 @@ func (Meeting) TableName() string {
 
 // Participant 회의 참가자
 type Participant struct {
-	ID        int64      `gorm:"primaryKey;autoIncrement" json:"id"`
-	MeetingID int64      `gorm:"not null" json:"meeting_id"`
-	UserID    *int64     `json:"user_id,omitempty"`                     // 비회원 허용
-	Role      string     `gorm:"type:varchar(20);not null" json:"role"` // HOST, PRESENTER, GUEST
-	JoinedAt  time.Time  `gorm:"autoCreateTime" json:"joined_at"`
-	LeftAt    *time.Time `json:"left_at,omitempty"`
+	ID         int64      `gorm:"primaryKey;autoIncrement" json:"id"`
+	MeetingID  int64      `gorm:"not null" json:"meeting_id"`
+	UserID     *int64     `json:"user_id,omitempty"`                     // 비회원 허용
+	Role       string     `gorm:"type:varchar(20);not null" json:"role"` // HOST, PRESENTER, GUEST
+	JoinedAt   time.Time  `gorm:"autoCreateTime" json:"joined_at"`
+	LeftAt     *time.Time `json:"left_at,omitempty"`
+	LastReadAt *time.Time `json:"last_read_at,omitempty"` // 마지막으로 읽은 시간 (DM unread count용)
 
 	// Relations
 	Meeting Meeting `gorm:"foreignKey:MeetingID" json:"meeting,omitempty"`

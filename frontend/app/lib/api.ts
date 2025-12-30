@@ -89,6 +89,14 @@ interface ChatRoomMessagesResponse {
   total: number;
 }
 
+export interface DMRoom {
+  id: number;
+  target_user: UserSearchResult;
+  last_message?: string;
+  unread_count: number;
+  updated_at: string;
+}
+
 // 미팅 관련 타입
 interface Participant {
   id: number;
@@ -425,6 +433,18 @@ class ApiClient {
 
   async getMeeting(workspaceId: number, meetingId: number): Promise<Meeting> {
     return this.request<Meeting>(`/api/workspaces/${workspaceId}/meetings/${meetingId}`);
+  }
+
+  // ========== DM API ==========
+  async getOrCreateDMRoom(workspaceId: number, targetUserId: number): Promise<{ id: number }> {
+    return this.request<{ id: number }>(`/api/workspaces/${workspaceId}/dm`, {
+      method: 'POST',
+      body: JSON.stringify({ target_user_id: targetUserId }),
+    });
+  }
+
+  async getMyDMs(workspaceId: number): Promise<DMRoom[]> {
+    return this.request<DMRoom[]>(`/api/workspaces/${workspaceId}/dm`);
   }
 
   async startMeeting(workspaceId: number, meetingId: number): Promise<Meeting> {
