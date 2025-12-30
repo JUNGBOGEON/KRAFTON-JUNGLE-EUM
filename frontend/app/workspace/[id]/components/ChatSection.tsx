@@ -217,7 +217,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
 
                 setMessages((prev) => {
                   // 이미 같은 ID가 있으면 무시
-                  if (data.payload.id && prev.some((m) => m.id === msgId)) return prev;
+                  if (data.payload?.id && prev.some((m) => m.id === msgId)) return prev;
 
                   if (isMyMsg) {
                     // 내 메시지: 같은 내용의 optimistic 메시지(임시 ID) 찾아서 대체
@@ -349,7 +349,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange }: 
         id: user?.id || 0,
         email: user?.email || "",
         nickname: user?.nickname || "",
-        profile_img: user?.profile_img,
+        profile_img: user?.profileImg,
       },
     };
 
