@@ -12,6 +12,7 @@ export const NotificationType = {
     WORKSPACE_INVITE: 'WORKSPACE_INVITE',
     MEETING_ALERT: 'MEETING_ALERT',
     COMMENT_MENTION: 'COMMENT_MENTION',
+    WORKSPACE_MEMBER_JOINED: 'WORKSPACE_MEMBER_JOINED',
 } as const;
 
 export type NotificationTypeType = typeof NotificationType[keyof typeof NotificationType];

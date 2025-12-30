@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "../../lib/auth-context";
 import { apiClient, Workspace } from "../../lib/api";
+import { NotificationType } from "../../lib/constants";
+import { useNotificationWebSocket } from "../../hooks/useNotificationWebSocket";
 import Sidebar from "./components/Sidebar";
 import MembersSection from "./components/MembersSection";
 import ChatSection from "./components/ChatSection";
@@ -46,6 +48,20 @@ export default function WorkspaceDetailPage() {
       setIsLoadingWorkspace(false);
     }
   }, [params.id]);
+
+  // WebSocket으로 실시간 멤버 업데이트
+  useNotificationWebSocket({
+    onNotification: useCallback((notification: any) => {
+      // workspace_member_joined 이벤트 처리
+      if (
+        notification.type === NotificationType.WORKSPACE_MEMBER_JOINED &&
+        Number(notification.related_id) === Number(workspace?.id)
+      ) {
+        fetchWorkspace();
+      }
+    }, [workspace?.id, fetchWorkspace]),
+    enabled: isAuthenticated,
+  });
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

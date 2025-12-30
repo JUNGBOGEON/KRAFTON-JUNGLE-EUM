@@ -12,9 +12,10 @@ const (
 type NotificationType string
 
 const (
-	NotificationTypeWorkspaceInvite NotificationType = "WORKSPACE_INVITE"
-	NotificationTypeMeetingAlert    NotificationType = "MEETING_ALERT"
-	NotificationTypeCommentMention  NotificationType = "COMMENT_MENTION"
+	NotificationTypeWorkspaceInvite       NotificationType = "WORKSPACE_INVITE"
+	NotificationTypeMeetingAlert          NotificationType = "MEETING_ALERT"
+	NotificationTypeCommentMention        NotificationType = "COMMENT_MENTION"
+	NotificationTypeWorkspaceMemberJoined NotificationType = "WORKSPACE_MEMBER_JOINED"
 )
 
 // String 메서드

@@ -82,11 +82,14 @@ export default function NotificationDropdown({ onInvitationAccepted }: Notificat
             setProcessingId(notification.id);
             const response = await apiClient.acceptInvitation(notification.id);
             setNotifications(prev => prev.filter(n => n.id !== notification.id));
+
+
             if (onInvitationAccepted && response.workspace_id) {
                 onInvitationAccepted(response.workspace_id);
             }
         } catch (err) {
             console.error("Failed to accept invitation:", err);
+
         } finally {
             setProcessingId(null);
         }
@@ -98,8 +101,11 @@ export default function NotificationDropdown({ onInvitationAccepted }: Notificat
             setProcessingId(notification.id);
             await apiClient.declineInvitation(notification.id);
             setNotifications(prev => prev.filter(n => n.id !== notification.id));
+
+
         } catch (err) {
             console.error("Failed to decline invitation:", err);
+
         } finally {
             setProcessingId(null);
         }
