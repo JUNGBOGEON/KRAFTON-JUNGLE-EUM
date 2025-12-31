@@ -154,13 +154,14 @@ export default function Sidebar({
     if (callChannels.length === 0) return;
 
     try {
-      const roomNames = callChannels.map(ch => `channel-${ch.id}`);
+      // 워크스페이스별로 고유한 방 이름 사용
+      const roomNames = callChannels.map(ch => `workspace-${workspaceId}-${ch.id}`);
       const participants = await apiClient.getAllRoomsParticipants(roomNames);
       setVoiceParticipants(participants);
     } catch (error) {
       console.error("Failed to fetch voice participants:", error);
     }
-  }, [callChannels]);
+  }, [callChannels, workspaceId]);
 
   useEffect(() => {
     fetchVoiceParticipants();

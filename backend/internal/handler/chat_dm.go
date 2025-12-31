@@ -153,6 +153,7 @@ func (h *ChatHandler) GetMyDMs(c *fiber.Ctx) error {
 				(SELECT COUNT(*) 
 				 FROM chat_logs cl 
 				 WHERE cl.meeting_id = m.id 
+				   AND cl.sender_id != ?
 				   AND (my_p.last_read_at IS NULL OR cl.created_at > my_p.last_read_at)),
 				0
 			) as unread_count
@@ -162,7 +163,7 @@ func (h *ChatHandler) GetMyDMs(c *fiber.Ctx) error {
 		LEFT JOIN users target_u ON target_p.user_id = target_u.id
 		WHERE m.workspace_id = ? AND m.type = 'DM'
 		ORDER BY m.created_at DESC
-	`, claims.UserID, claims.UserID, workspaceID).Scan(&results).Error
+	`, claims.UserID, claims.UserID, claims.UserID, workspaceID).Scan(&results).Error
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch dms"})

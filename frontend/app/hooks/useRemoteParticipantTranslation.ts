@@ -14,6 +14,7 @@ const CHUNK_INTERVAL_MS = 1500;
 export interface RemoteTranscriptData extends TranscriptData {
     participantId: string;
     participantName?: string;
+    profileImg?: string;
 }
 
 interface UseRemoteParticipantTranslationOptions {
@@ -63,6 +64,19 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
         int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
     return int16Array;
+}
+
+// Parse participant metadata to extract profileImg
+function getParticipantProfileImg(participant: RemoteParticipant | LocalParticipant): string | undefined {
+    try {
+        if (participant.metadata) {
+            const metadata = JSON.parse(participant.metadata);
+            return metadata.profileImg || metadata.profile_img || metadata.avatar;
+        }
+    } catch {
+        // Metadata is not valid JSON
+    }
+    return undefined;
 }
 
 // Linear interpolation resampling
@@ -351,11 +365,22 @@ export function useRemoteParticipantTranslation({
                     try {
                         const data = JSON.parse(event.data);
                         if (data.type === 'transcript') {
+                            // 접두사 제거 함수
+                            const stripPrefixes = (text: string | undefined): string => {
+                                if (!text) return '';
+                                return text
+                                    .replace(/^\[FINAL\]\s*/i, '')
+                                    .replace(/^\[LLM\]\s*/i, '')
+                                    .replace(/^\[PARTIAL\]\s*/i, '')
+                                    .trim();
+                            };
+
                             const transcriptData: RemoteTranscriptData = {
                                 participantId: data.participantId || participantId,
                                 participantName: participant.name || participantId,
-                                original: data.original || data.text,
-                                translated: data.translated || data.text,
+                                profileImg: getParticipantProfileImg(participant),
+                                original: stripPrefixes(data.original) || stripPrefixes(data.text),
+                                translated: stripPrefixes(data.translated),
                                 isFinal: data.isFinal,
                             };
 

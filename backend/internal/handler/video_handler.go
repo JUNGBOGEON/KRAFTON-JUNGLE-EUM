@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"realtime-backend/internal/config"
@@ -29,6 +30,12 @@ type TokenRequest struct {
 
 type TokenResponse struct {
 	Token string `json:"token"`
+}
+
+// ParticipantMetadata is stored in LiveKit participant metadata
+type ParticipantMetadata struct {
+	ProfileImg string `json:"profileImg,omitempty"`
+	UserID     int64  `json:"userId,omitempty"`
 }
 
 // GenerateToken creates a LiveKit access token for a participant
@@ -71,6 +78,21 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 		}
 	}
 
+	// Get user profile image from database
+	var metadata ParticipantMetadata
+	if userID, ok := c.Locals("userId").(int64); ok {
+		metadata.UserID = userID
+		var user struct {
+			ProfileImg string
+		}
+		if err := h.db.Table("users").Select("profile_img").Where("id = ?", userID).Scan(&user).Error; err == nil {
+			metadata.ProfileImg = user.ProfileImg
+		}
+	}
+
+	// Serialize metadata to JSON
+	metadataJSON, _ := json.Marshal(metadata)
+
 	// Create access token
 	at := auth.NewAccessToken(h.cfg.LiveKit.APIKey, h.cfg.LiveKit.APISecret)
 
@@ -82,6 +104,8 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 
 	at.AddGrant(grant).
 		SetIdentity(req.ParticipantName).
+		SetName(req.ParticipantName).
+		SetMetadata(string(metadataJSON)).
 		SetValidFor(time.Hour * 24)
 
 	token, err := at.ToJWT()

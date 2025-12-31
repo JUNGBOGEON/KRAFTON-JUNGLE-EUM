@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package conversation;
+
+option go_package = "./pb";
+
+service ConversationService {
+  rpc StreamChat(stream ChatRequest) returns (stream ChatResponse);
+}
+
+message ChatRequest {
+  string session_id = 1;
+  oneof payload {
+    SessionInit session_init = 2;
+    bytes audio_chunk = 3;
+    SessionEnd session_end = 4;
+  }
+}
+
+message SessionInit {
+  uint32 sample_rate = 1;
+  uint32 channels = 2;
+  uint32 bits_per_sample = 3;
+  string language = 4;
+}
+
+message SessionEnd {}
+
+message ChatResponse {
+  string session_id = 1;
+  oneof payload {
+    TranscriptPartial transcript_partial = 2;
+    TranscriptFinal transcript_final = 3;
+    TextResponse text_response = 4;
+    AudioResponse audio_response = 5;
+  }
+}
+
+message TranscriptPartial {
+  string text = 1;
+  float confidence = 2;
+}
+
+message TranscriptFinal {
+  string text = 1;
+}
+
+message TextResponse {
+  string text = 1;
+  bool is_final = 2;
+}
+
+message AudioResponse {
+  bytes audio_data = 1;
+  string format = 2;
+  uint32 sample_rate = 3;
+}

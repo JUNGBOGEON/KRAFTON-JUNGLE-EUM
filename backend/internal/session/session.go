@@ -40,6 +40,7 @@ type TranscriptMessage struct {
 	Text          string `json:"text"`          // 번역된 텍스트 (하위 호환)
 	Original      string `json:"original"`      // 원본 STT 텍스트
 	Translated    string `json:"translated"`    // 번역된 텍스트
+	Language      string `json:"language"`      // 번역 대상 언어 (ko, en, ja, zh)
 	IsFinal       bool   `json:"isFinal"`
 }
 

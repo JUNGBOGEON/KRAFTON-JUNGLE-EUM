@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.0
 // - protoc             v6.33.1
-// source: conversation.proto
+// source: proto/conversation.proto
 
 package pb
 
@@ -25,11 +25,7 @@ const (
 // ConversationServiceClient is the client API for ConversationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// 대화 서비스 정의
 type ConversationServiceClient interface {
-	// 양방향 스트리밍 RPC
-	// Go(Audio) → Python(AI) → Go(Audio/Text)
 	StreamChat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ChatRequest, ChatResponse], error)
 }
 
@@ -57,11 +53,7 @@ type ConversationService_StreamChatClient = grpc.BidiStreamingClient[ChatRequest
 // ConversationServiceServer is the server API for ConversationService service.
 // All implementations must embed UnimplementedConversationServiceServer
 // for forward compatibility.
-//
-// 대화 서비스 정의
 type ConversationServiceServer interface {
-	// 양방향 스트리밍 RPC
-	// Go(Audio) → Python(AI) → Go(Audio/Text)
 	StreamChat(grpc.BidiStreamingServer[ChatRequest, ChatResponse]) error
 	mustEmbedUnimplementedConversationServiceServer()
 }
@@ -119,5 +111,5 @@ var ConversationService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "conversation.proto",
+	Metadata: "proto/conversation.proto",
 }

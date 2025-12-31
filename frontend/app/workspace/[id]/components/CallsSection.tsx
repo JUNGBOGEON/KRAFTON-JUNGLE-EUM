@@ -35,6 +35,7 @@ const getChannelName = (channelId: string): string => {
 };
 
 export default function CallsSection({
+  workspaceId,
   channelId,
   activeCall,
   onJoinCall,
@@ -49,7 +50,7 @@ export default function CallsSection({
     return (
       <div className="h-full bg-white">
         <VideoCallFeature
-          roomId={`channel-${channelId}`}
+          roomId={`workspace-${workspaceId}-${channelId}`}
           roomTitle={activeCall.channelName}
           onLeave={() => {
             onLeaveCall?.();

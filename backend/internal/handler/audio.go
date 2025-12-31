@@ -334,12 +334,28 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 
 			// 텍스트 타입에 따라 처리
 			if strings.HasPrefix(text, "[FINAL] ") {
-				// STT 최종 결과 - 저장만 하고 LLM 번역 결과를 기다림
+				// STT 최종 결과 - 즉시 전송 (STT용) + LLM 대기
 				originalText := strings.TrimPrefix(text, "[FINAL] ")
 				mu.Lock()
 				lastOriginalText = originalText
 				mu.Unlock()
-				log.Printf("📝 [%s] STT saved (waiting for LLM): %s", sess.ID, originalText)
+
+				// STT 결과 즉시 전송 (번역 없이 원본만)
+				transcriptMsg := &session.TranscriptMessage{
+					Type:          "transcript",
+					ParticipantID: sess.GetParticipantID(),
+					Text:          originalText,
+					Original:      originalText,
+					Translated:    "", // 아직 번역 없음
+					Language:      sess.GetLanguage(),
+					IsFinal:       true,
+				}
+				select {
+				case sess.TranscriptChan <- transcriptMsg:
+					log.Printf("📝 [%s] STT sent: %s", sess.ID, originalText)
+				default:
+					log.Printf("⚠️ [%s] Transcript buffer full, dropping STT", sess.ID)
+				}
 
 			} else if strings.HasPrefix(text, "[LLM] ") {
 				// LLM 번역 결과 - 원본과 함께 전송
@@ -355,6 +371,7 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 					Text:          translatedText,
 					Original:      originalText,
 					Translated:    translatedText,
+					Language:      sess.GetLanguage(),
 					IsFinal:       true,
 				}
 				select {
@@ -386,6 +403,7 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 					Text:          text,
 					Original:      originalText,
 					Translated:    text,
+					Language:      sess.GetLanguage(),
 					IsFinal:       true,
 				}
 				select {

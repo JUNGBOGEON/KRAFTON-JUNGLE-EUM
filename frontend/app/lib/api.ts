@@ -539,6 +539,12 @@ class ApiClient {
     });
   }
 
+  async markChatRoomAsRead(workspaceId: number, roomId: number): Promise<{ message: string; read_at: string }> {
+    return this.request(`/api/workspaces/${workspaceId}/chatrooms/${roomId}/read`, {
+      method: 'POST',
+    });
+  }
+
   // ========== 미팅 API ==========
   async getWorkspaceMeetings(workspaceId: number): Promise<MeetingsResponse> {
     return this.request<MeetingsResponse>(`/api/workspaces/${workspaceId}/meetings`);

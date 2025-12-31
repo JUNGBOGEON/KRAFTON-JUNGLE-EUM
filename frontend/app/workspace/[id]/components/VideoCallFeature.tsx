@@ -50,33 +50,70 @@ function VideoCallContent({
 
     // STT/번역 결과 처리 (모든 원격 참가자)
     const handleTranscript = useCallback((data: RemoteTranscriptData) => {
-        console.log("[VideoCallFeature] Transcript:", data.participantName, "-", data.original);
+        console.log("[VideoCallFeature] Transcript:", data.participantName, "-", data.original, "translated:", data.translated);
 
-        // 중복 방지
         const key = `${data.participantId}-${data.original}`;
-        if (key === lastTranscriptRef.current) {
+        const hasTranslation = data.translated && data.translated.length > 0;
+
+        // 번역이 있는 경우: 기존 레코드 업데이트 또는 새로 추가
+        // 번역이 없는 경우: 중복 방지 체크 후 추가
+        if (!hasTranslation && key === lastTranscriptRef.current) {
+            // STT만 있고 이미 처리된 경우 스킵
             return;
         }
-        lastTranscriptRef.current = key;
 
-        // 음성 기록에 항상 추가 (STT)
-        // 번역 모드일 때만 translated와 targetLanguage 포함
-        const newRecord: VoiceRecord = {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            speaker: data.participantName || data.participantId,
-            profileImg: undefined,
-            original: data.original,
-            translated: isTranslationOpen ? data.translated : undefined,
-            targetLanguage: isTranslationOpen ? targetLanguage : undefined,
-            timestamp: Date.now(),
-        };
-        setVoiceRecords(prev => [...prev, newRecord]);
+        // 번역이 포함된 경우 기존 레코드 업데이트
+        if (hasTranslation) {
+            setVoiceRecords(prev => {
+                // 같은 original을 가진 마지막 레코드 찾기
+                const lastIndex = prev.findLastIndex(r =>
+                    r.speaker === (data.participantName || data.participantId) &&
+                    r.original === data.original
+                );
 
-        // 번역 모드일 때만 자막 표시
-        if (isTranslationOpen) {
+                if (lastIndex >= 0) {
+                    // 기존 레코드 업데이트
+                    const updated = [...prev];
+                    updated[lastIndex] = {
+                        ...updated[lastIndex],
+                        translated: isTranslationOpen ? data.translated : undefined,
+                        targetLanguage: isTranslationOpen ? targetLanguage : undefined,
+                    };
+                    return updated;
+                }
+
+                // 없으면 새로 추가
+                return [...prev, {
+                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    speaker: data.participantName || data.participantId,
+                    profileImg: data.profileImg,
+                    original: data.original,
+                    translated: isTranslationOpen ? data.translated : undefined,
+                    targetLanguage: isTranslationOpen ? targetLanguage : undefined,
+                    timestamp: Date.now(),
+                }];
+            });
+        } else {
+            // STT만 있는 경우 새 레코드 추가
+            lastTranscriptRef.current = key;
+
+            const newRecord: VoiceRecord = {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                speaker: data.participantName || data.participantId,
+                profileImg: data.profileImg,
+                original: data.original,
+                translated: undefined,
+                targetLanguage: undefined,
+                timestamp: Date.now(),
+            };
+            setVoiceRecords(prev => [...prev, newRecord]);
+        }
+
+        // 번역 모드일 때만 자막 표시 (번역이 있을 때)
+        if (isTranslationOpen && hasTranslation) {
             setCurrentSpeaker({
                 name: data.participantName || data.participantId,
-                profileImg: undefined,
+                profileImg: data.profileImg,
                 isLocal: false,
             });
             setCurrentOriginal(data.original);

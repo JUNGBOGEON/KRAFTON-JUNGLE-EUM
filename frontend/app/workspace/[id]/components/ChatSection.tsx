@@ -244,9 +244,11 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, on
                   return [...prev, newMsg];
                 });
 
-                // 다른 사람 메시지일 때만 스크롤
+                // 다른 사람 메시지일 때만 스크롤 및 읽음 처리
                 if (!isMyMsg) {
                   requestAnimationFrame(() => scrollToBottom("smooth"));
+                  // 읽음 처리 (비동기, 에러 무시)
+                  apiClient.markChatRoomAsRead(workspaceId, roomId).catch(() => { });
                 }
               }
               break;

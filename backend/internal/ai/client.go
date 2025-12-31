@@ -210,16 +210,8 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 
 			// 응답 타입별 처리
 			switch payload := resp.Payload.(type) {
-			case *pb.ChatResponse_AudioChunk:
-				// TTS 오디오 → 수신 채널 (deprecated, raw bytes)
-				select {
-				case recvChan <- payload.AudioChunk:
-				default:
-					log.Printf("⚠️ [%s] Recv channel full, dropping audio", sessionID)
-				}
-
 			case *pb.ChatResponse_AudioResponse:
-				// TTS 오디오 응답 (메타데이터 포함)
+				// TTS 오디오 응답
 				log.Printf("🔊 [%s] TTS Audio: format=%s, sampleRate=%d, size=%d bytes",
 					sessionID, payload.AudioResponse.Format,
 					payload.AudioResponse.SampleRate, len(payload.AudioResponse.AudioData))
@@ -246,16 +238,12 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 				log.Printf("✅ [%s] STT Final: %s", sessionID, payload.TranscriptFinal.Text)
 
 			case *pb.ChatResponse_TextResponse:
-				// LLM 응답 → 텍스트 채널
+				// LLM 번역 응답 → 텍스트 채널
 				select {
 				case textChan <- "[LLM] " + payload.TextResponse.Text:
 				default:
 				}
 				log.Printf("🤖 [%s] LLM: %s", sessionID, payload.TextResponse.Text)
-
-			case *pb.ChatResponse_Error:
-				log.Printf("❌ [%s] AI Server Error: [%s] %s",
-					sessionID, payload.Error.Code, payload.Error.Message)
 			}
 		}
 	}()

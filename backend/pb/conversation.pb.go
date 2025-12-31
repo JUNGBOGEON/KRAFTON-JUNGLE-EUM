@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.33.1
-// source: conversation.proto
+// source: proto/conversation.proto
 
 package pb
 
@@ -21,17 +21,13 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 클라이언트 → 서버 요청
 type ChatRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// 세션 식별자
-	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// 요청 타입 (oneof)
-	//
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
-	//	*ChatRequest_AudioChunk
 	//	*ChatRequest_SessionInit
+	//	*ChatRequest_AudioChunk
 	//	*ChatRequest_SessionEnd
 	Payload       isChatRequest_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -40,7 +36,7 @@ type ChatRequest struct {
 
 func (x *ChatRequest) Reset() {
 	*x = ChatRequest{}
-	mi := &file_conversation_proto_msgTypes[0]
+	mi := &file_proto_conversation_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -52,7 +48,7 @@ func (x *ChatRequest) String() string {
 func (*ChatRequest) ProtoMessage() {}
 
 func (x *ChatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[0]
+	mi := &file_proto_conversation_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65,7 +61,7 @@ func (x *ChatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatRequest.ProtoReflect.Descriptor instead.
 func (*ChatRequest) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{0}
+	return file_proto_conversation_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ChatRequest) GetSessionId() string {
@@ -82,19 +78,19 @@ func (x *ChatRequest) GetPayload() isChatRequest_Payload {
 	return nil
 }
 
-func (x *ChatRequest) GetAudioChunk() []byte {
+func (x *ChatRequest) GetSessionInit() *SessionInit {
 	if x != nil {
-		if x, ok := x.Payload.(*ChatRequest_AudioChunk); ok {
-			return x.AudioChunk
+		if x, ok := x.Payload.(*ChatRequest_SessionInit); ok {
+			return x.SessionInit
 		}
 	}
 	return nil
 }
 
-func (x *ChatRequest) GetSessionInit() *SessionInit {
+func (x *ChatRequest) GetAudioChunk() []byte {
 	if x != nil {
-		if x, ok := x.Payload.(*ChatRequest_SessionInit); ok {
-			return x.SessionInit
+		if x, ok := x.Payload.(*ChatRequest_AudioChunk); ok {
+			return x.AudioChunk
 		}
 	}
 	return nil
@@ -113,41 +109,37 @@ type isChatRequest_Payload interface {
 	isChatRequest_Payload()
 }
 
-type ChatRequest_AudioChunk struct {
-	// 오디오 청크 (Int16 PCM)
-	AudioChunk []byte `protobuf:"bytes,2,opt,name=audio_chunk,json=audioChunk,proto3,oneof"`
+type ChatRequest_SessionInit struct {
+	SessionInit *SessionInit `protobuf:"bytes,2,opt,name=session_init,json=sessionInit,proto3,oneof"`
 }
 
-type ChatRequest_SessionInit struct {
-	// 세션 초기화 정보
-	SessionInit *SessionInit `protobuf:"bytes,3,opt,name=session_init,json=sessionInit,proto3,oneof"`
+type ChatRequest_AudioChunk struct {
+	AudioChunk []byte `protobuf:"bytes,3,opt,name=audio_chunk,json=audioChunk,proto3,oneof"`
 }
 
 type ChatRequest_SessionEnd struct {
-	// 세션 종료 신호
 	SessionEnd *SessionEnd `protobuf:"bytes,4,opt,name=session_end,json=sessionEnd,proto3,oneof"`
 }
 
-func (*ChatRequest_AudioChunk) isChatRequest_Payload() {}
-
 func (*ChatRequest_SessionInit) isChatRequest_Payload() {}
+
+func (*ChatRequest_AudioChunk) isChatRequest_Payload() {}
 
 func (*ChatRequest_SessionEnd) isChatRequest_Payload() {}
 
-// 세션 초기화 정보
 type SessionInit struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SampleRate    uint32                 `protobuf:"varint,1,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`            // 샘플레이트 (예: 16000)
-	Channels      uint32                 `protobuf:"varint,2,opt,name=channels,proto3" json:"channels,omitempty"`                                  // 채널 수 (예: 1)
-	BitsPerSample uint32                 `protobuf:"varint,3,opt,name=bits_per_sample,json=bitsPerSample,proto3" json:"bits_per_sample,omitempty"` // 비트 깊이 (예: 16)
-	Language      string                 `protobuf:"bytes,4,opt,name=language,proto3" json:"language,omitempty"`                                   // 언어 코드 (예: "ko-KR")
+	SampleRate    uint32                 `protobuf:"varint,1,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`
+	Channels      uint32                 `protobuf:"varint,2,opt,name=channels,proto3" json:"channels,omitempty"`
+	BitsPerSample uint32                 `protobuf:"varint,3,opt,name=bits_per_sample,json=bitsPerSample,proto3" json:"bits_per_sample,omitempty"`
+	Language      string                 `protobuf:"bytes,4,opt,name=language,proto3" json:"language,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionInit) Reset() {
 	*x = SessionInit{}
-	mi := &file_conversation_proto_msgTypes[1]
+	mi := &file_proto_conversation_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -159,7 +151,7 @@ func (x *SessionInit) String() string {
 func (*SessionInit) ProtoMessage() {}
 
 func (x *SessionInit) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[1]
+	mi := &file_proto_conversation_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -172,7 +164,7 @@ func (x *SessionInit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionInit.ProtoReflect.Descriptor instead.
 func (*SessionInit) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{1}
+	return file_proto_conversation_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SessionInit) GetSampleRate() uint32 {
@@ -203,17 +195,15 @@ func (x *SessionInit) GetLanguage() string {
 	return ""
 }
 
-// 세션 종료 신호
 type SessionEnd struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"` // 종료 사유
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionEnd) Reset() {
 	*x = SessionEnd{}
-	mi := &file_conversation_proto_msgTypes[2]
+	mi := &file_proto_conversation_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -225,7 +215,7 @@ func (x *SessionEnd) String() string {
 func (*SessionEnd) ProtoMessage() {}
 
 func (x *SessionEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[2]
+	mi := &file_proto_conversation_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -238,30 +228,17 @@ func (x *SessionEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionEnd.ProtoReflect.Descriptor instead.
 func (*SessionEnd) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{2}
+	return file_proto_conversation_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SessionEnd) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-// 서버 → 클라이언트 응답
 type ChatResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// 세션 식별자
-	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// 응답 타입 (oneof)
-	//
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
-	//	*ChatResponse_AudioChunk
 	//	*ChatResponse_TranscriptPartial
 	//	*ChatResponse_TranscriptFinal
 	//	*ChatResponse_TextResponse
-	//	*ChatResponse_Error
 	//	*ChatResponse_AudioResponse
 	Payload       isChatResponse_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -270,7 +247,7 @@ type ChatResponse struct {
 
 func (x *ChatResponse) Reset() {
 	*x = ChatResponse{}
-	mi := &file_conversation_proto_msgTypes[3]
+	mi := &file_proto_conversation_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -282,7 +259,7 @@ func (x *ChatResponse) String() string {
 func (*ChatResponse) ProtoMessage() {}
 
 func (x *ChatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[3]
+	mi := &file_proto_conversation_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -295,7 +272,7 @@ func (x *ChatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChatResponse.ProtoReflect.Descriptor instead.
 func (*ChatResponse) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{3}
+	return file_proto_conversation_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ChatResponse) GetSessionId() string {
@@ -308,15 +285,6 @@ func (x *ChatResponse) GetSessionId() string {
 func (x *ChatResponse) GetPayload() isChatResponse_Payload {
 	if x != nil {
 		return x.Payload
-	}
-	return nil
-}
-
-func (x *ChatResponse) GetAudioChunk() []byte {
-	if x != nil {
-		if x, ok := x.Payload.(*ChatResponse_AudioChunk); ok {
-			return x.AudioChunk
-		}
 	}
 	return nil
 }
@@ -348,15 +316,6 @@ func (x *ChatResponse) GetTextResponse() *TextResponse {
 	return nil
 }
 
-func (x *ChatResponse) GetError() *ErrorResponse {
-	if x != nil {
-		if x, ok := x.Payload.(*ChatResponse_Error); ok {
-			return x.Error
-		}
-	}
-	return nil
-}
-
 func (x *ChatResponse) GetAudioResponse() *AudioResponse {
 	if x != nil {
 		if x, ok := x.Payload.(*ChatResponse_AudioResponse); ok {
@@ -370,37 +329,21 @@ type isChatResponse_Payload interface {
 	isChatResponse_Payload()
 }
 
-type ChatResponse_AudioChunk struct {
-	// TTS 오디오 청크 (raw bytes - deprecated)
-	AudioChunk []byte `protobuf:"bytes,2,opt,name=audio_chunk,json=audioChunk,proto3,oneof"`
-}
-
 type ChatResponse_TranscriptPartial struct {
-	// STT 중간 결과 (실시간 자막)
-	TranscriptPartial *TranscriptPartial `protobuf:"bytes,3,opt,name=transcript_partial,json=transcriptPartial,proto3,oneof"`
+	TranscriptPartial *TranscriptPartial `protobuf:"bytes,2,opt,name=transcript_partial,json=transcriptPartial,proto3,oneof"`
 }
 
 type ChatResponse_TranscriptFinal struct {
-	// STT 최종 결과
-	TranscriptFinal *TranscriptFinal `protobuf:"bytes,4,opt,name=transcript_final,json=transcriptFinal,proto3,oneof"`
+	TranscriptFinal *TranscriptFinal `protobuf:"bytes,3,opt,name=transcript_final,json=transcriptFinal,proto3,oneof"`
 }
 
 type ChatResponse_TextResponse struct {
-	// LLM 응답 텍스트
-	TextResponse *TextResponse `protobuf:"bytes,5,opt,name=text_response,json=textResponse,proto3,oneof"`
-}
-
-type ChatResponse_Error struct {
-	// 에러 응답
-	Error *ErrorResponse `protobuf:"bytes,6,opt,name=error,proto3,oneof"`
+	TextResponse *TextResponse `protobuf:"bytes,4,opt,name=text_response,json=textResponse,proto3,oneof"`
 }
 
 type ChatResponse_AudioResponse struct {
-	// TTS 오디오 응답 (메타데이터 포함)
-	AudioResponse *AudioResponse `protobuf:"bytes,7,opt,name=audio_response,json=audioResponse,proto3,oneof"`
+	AudioResponse *AudioResponse `protobuf:"bytes,5,opt,name=audio_response,json=audioResponse,proto3,oneof"`
 }
-
-func (*ChatResponse_AudioChunk) isChatResponse_Payload() {}
 
 func (*ChatResponse_TranscriptPartial) isChatResponse_Payload() {}
 
@@ -408,23 +351,168 @@ func (*ChatResponse_TranscriptFinal) isChatResponse_Payload() {}
 
 func (*ChatResponse_TextResponse) isChatResponse_Payload() {}
 
-func (*ChatResponse_Error) isChatResponse_Payload() {}
-
 func (*ChatResponse_AudioResponse) isChatResponse_Payload() {}
 
-// TTS 오디오 응답
+type TranscriptPartial struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	Confidence    float32                `protobuf:"fixed32,2,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TranscriptPartial) Reset() {
+	*x = TranscriptPartial{}
+	mi := &file_proto_conversation_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscriptPartial) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscriptPartial) ProtoMessage() {}
+
+func (x *TranscriptPartial) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_conversation_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscriptPartial.ProtoReflect.Descriptor instead.
+func (*TranscriptPartial) Descriptor() ([]byte, []int) {
+	return file_proto_conversation_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TranscriptPartial) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *TranscriptPartial) GetConfidence() float32 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+type TranscriptFinal struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TranscriptFinal) Reset() {
+	*x = TranscriptFinal{}
+	mi := &file_proto_conversation_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscriptFinal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscriptFinal) ProtoMessage() {}
+
+func (x *TranscriptFinal) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_conversation_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscriptFinal.ProtoReflect.Descriptor instead.
+func (*TranscriptFinal) Descriptor() ([]byte, []int) {
+	return file_proto_conversation_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TranscriptFinal) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type TextResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	IsFinal       bool                   `protobuf:"varint,2,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TextResponse) Reset() {
+	*x = TextResponse{}
+	mi := &file_proto_conversation_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TextResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TextResponse) ProtoMessage() {}
+
+func (x *TextResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_conversation_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TextResponse.ProtoReflect.Descriptor instead.
+func (*TextResponse) Descriptor() ([]byte, []int) {
+	return file_proto_conversation_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TextResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *TextResponse) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
 type AudioResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AudioData     []byte                 `protobuf:"bytes,1,opt,name=audio_data,json=audioData,proto3" json:"audio_data,omitempty"`     // 오디오 바이트 (MP3/PCM)
-	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`                            // 포맷 (예: "mp3", "pcm")
-	SampleRate    uint32                 `protobuf:"varint,3,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"` // 샘플레이트 (예: 24000)
+	AudioData     []byte                 `protobuf:"bytes,1,opt,name=audio_data,json=audioData,proto3" json:"audio_data,omitempty"`
+	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
+	SampleRate    uint32                 `protobuf:"varint,3,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AudioResponse) Reset() {
 	*x = AudioResponse{}
-	mi := &file_conversation_proto_msgTypes[4]
+	mi := &file_proto_conversation_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +524,7 @@ func (x *AudioResponse) String() string {
 func (*AudioResponse) ProtoMessage() {}
 
 func (x *AudioResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[4]
+	mi := &file_proto_conversation_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +537,7 @@ func (x *AudioResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AudioResponse.ProtoReflect.Descriptor instead.
 func (*AudioResponse) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{4}
+	return file_proto_conversation_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AudioResponse) GetAudioData() []byte {
@@ -473,245 +561,17 @@ func (x *AudioResponse) GetSampleRate() uint32 {
 	return 0
 }
 
-// STT 중간 결과 (실시간 자막)
-type TranscriptPartial struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	Confidence    float32                `protobuf:"fixed32,2,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
+var File_proto_conversation_proto protoreflect.FileDescriptor
 
-func (x *TranscriptPartial) Reset() {
-	*x = TranscriptPartial{}
-	mi := &file_conversation_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TranscriptPartial) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TranscriptPartial) ProtoMessage() {}
-
-func (x *TranscriptPartial) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TranscriptPartial.ProtoReflect.Descriptor instead.
-func (*TranscriptPartial) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *TranscriptPartial) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-func (x *TranscriptPartial) GetConfidence() float32 {
-	if x != nil {
-		return x.Confidence
-	}
-	return 0
-}
-
-// STT 최종 결과
-type TranscriptFinal struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	Confidence    float32                `protobuf:"fixed32,2,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	StartTimeMs   uint64                 `protobuf:"varint,3,opt,name=start_time_ms,json=startTimeMs,proto3" json:"start_time_ms,omitempty"`
-	EndTimeMs     uint64                 `protobuf:"varint,4,opt,name=end_time_ms,json=endTimeMs,proto3" json:"end_time_ms,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TranscriptFinal) Reset() {
-	*x = TranscriptFinal{}
-	mi := &file_conversation_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TranscriptFinal) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TranscriptFinal) ProtoMessage() {}
-
-func (x *TranscriptFinal) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TranscriptFinal.ProtoReflect.Descriptor instead.
-func (*TranscriptFinal) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *TranscriptFinal) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-func (x *TranscriptFinal) GetConfidence() float32 {
-	if x != nil {
-		return x.Confidence
-	}
-	return 0
-}
-
-func (x *TranscriptFinal) GetStartTimeMs() uint64 {
-	if x != nil {
-		return x.StartTimeMs
-	}
-	return 0
-}
-
-func (x *TranscriptFinal) GetEndTimeMs() uint64 {
-	if x != nil {
-		return x.EndTimeMs
-	}
-	return 0
-}
-
-// LLM 응답 텍스트
-type TextResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	IsFinal       bool                   `protobuf:"varint,2,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"` // 스트리밍 중인지 최종인지
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *TextResponse) Reset() {
-	*x = TextResponse{}
-	mi := &file_conversation_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *TextResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*TextResponse) ProtoMessage() {}
-
-func (x *TextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use TextResponse.ProtoReflect.Descriptor instead.
-func (*TextResponse) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *TextResponse) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-func (x *TextResponse) GetIsFinal() bool {
-	if x != nil {
-		return x.IsFinal
-	}
-	return false
-}
-
-// 에러 응답
-type ErrorResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ErrorResponse) Reset() {
-	*x = ErrorResponse{}
-	mi := &file_conversation_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ErrorResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ErrorResponse) ProtoMessage() {}
-
-func (x *ErrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_conversation_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ErrorResponse.ProtoReflect.Descriptor instead.
-func (*ErrorResponse) Descriptor() ([]byte, []int) {
-	return file_conversation_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *ErrorResponse) GetCode() string {
-	if x != nil {
-		return x.Code
-	}
-	return ""
-}
-
-func (x *ErrorResponse) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
-var File_conversation_proto protoreflect.FileDescriptor
-
-const file_conversation_proto_rawDesc = "" +
+const file_proto_conversation_proto_rawDesc = "" +
 	"\n" +
-	"\x12conversation.proto\x12\fconversation\"\xd7\x01\n" +
+	"\x18proto/conversation.proto\x12\fconversation\"\xd7\x01\n" +
 	"\vChatRequest\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12!\n" +
-	"\vaudio_chunk\x18\x02 \x01(\fH\x00R\n" +
-	"audioChunk\x12>\n" +
-	"\fsession_init\x18\x03 \x01(\v2\x19.conversation.SessionInitH\x00R\vsessionInit\x12;\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12>\n" +
+	"\fsession_init\x18\x02 \x01(\v2\x19.conversation.SessionInitH\x00R\vsessionInit\x12!\n" +
+	"\vaudio_chunk\x18\x03 \x01(\fH\x00R\n" +
+	"audioChunk\x12;\n" +
 	"\vsession_end\x18\x04 \x01(\v2\x18.conversation.SessionEndH\x00R\n" +
 	"sessionEndB\t\n" +
 	"\apayload\"\x8e\x01\n" +
@@ -720,123 +580,107 @@ const file_conversation_proto_rawDesc = "" +
 	"sampleRate\x12\x1a\n" +
 	"\bchannels\x18\x02 \x01(\rR\bchannels\x12&\n" +
 	"\x0fbits_per_sample\x18\x03 \x01(\rR\rbitsPerSample\x12\x1a\n" +
-	"\blanguage\x18\x04 \x01(\tR\blanguage\"$\n" +
+	"\blanguage\x18\x04 \x01(\tR\blanguage\"\f\n" +
 	"\n" +
-	"SessionEnd\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xb7\x03\n" +
+	"SessionEnd\"\xdf\x02\n" +
 	"\fChatResponse\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12!\n" +
-	"\vaudio_chunk\x18\x02 \x01(\fH\x00R\n" +
-	"audioChunk\x12P\n" +
-	"\x12transcript_partial\x18\x03 \x01(\v2\x1f.conversation.TranscriptPartialH\x00R\x11transcriptPartial\x12J\n" +
-	"\x10transcript_final\x18\x04 \x01(\v2\x1d.conversation.TranscriptFinalH\x00R\x0ftranscriptFinal\x12A\n" +
-	"\rtext_response\x18\x05 \x01(\v2\x1a.conversation.TextResponseH\x00R\ftextResponse\x123\n" +
-	"\x05error\x18\x06 \x01(\v2\x1b.conversation.ErrorResponseH\x00R\x05error\x12D\n" +
-	"\x0eaudio_response\x18\a \x01(\v2\x1b.conversation.AudioResponseH\x00R\raudioResponseB\t\n" +
-	"\apayload\"g\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12P\n" +
+	"\x12transcript_partial\x18\x02 \x01(\v2\x1f.conversation.TranscriptPartialH\x00R\x11transcriptPartial\x12J\n" +
+	"\x10transcript_final\x18\x03 \x01(\v2\x1d.conversation.TranscriptFinalH\x00R\x0ftranscriptFinal\x12A\n" +
+	"\rtext_response\x18\x04 \x01(\v2\x1a.conversation.TextResponseH\x00R\ftextResponse\x12D\n" +
+	"\x0eaudio_response\x18\x05 \x01(\v2\x1b.conversation.AudioResponseH\x00R\raudioResponseB\t\n" +
+	"\apayload\"G\n" +
+	"\x11TranscriptPartial\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\x02 \x01(\x02R\n" +
+	"confidence\"%\n" +
+	"\x0fTranscriptFinal\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"=\n" +
+	"\fTextResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x19\n" +
+	"\bis_final\x18\x02 \x01(\bR\aisFinal\"g\n" +
 	"\rAudioResponse\x12\x1d\n" +
 	"\n" +
 	"audio_data\x18\x01 \x01(\fR\taudioData\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
 	"\vsample_rate\x18\x03 \x01(\rR\n" +
-	"sampleRate\"G\n" +
-	"\x11TranscriptPartial\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1e\n" +
-	"\n" +
-	"confidence\x18\x02 \x01(\x02R\n" +
-	"confidence\"\x89\x01\n" +
-	"\x0fTranscriptFinal\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1e\n" +
-	"\n" +
-	"confidence\x18\x02 \x01(\x02R\n" +
-	"confidence\x12\"\n" +
-	"\rstart_time_ms\x18\x03 \x01(\x04R\vstartTimeMs\x12\x1e\n" +
-	"\vend_time_ms\x18\x04 \x01(\x04R\tendTimeMs\"=\n" +
-	"\fTextResponse\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\x12\x19\n" +
-	"\bis_final\x18\x02 \x01(\bR\aisFinal\"=\n" +
-	"\rErrorResponse\x12\x12\n" +
-	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2^\n" +
+	"sampleRate2^\n" +
 	"\x13ConversationService\x12G\n" +
 	"\n" +
-	"StreamChat\x12\x19.conversation.ChatRequest\x1a\x1a.conversation.ChatResponse(\x010\x01B\x18Z\x16realtime-backend/pb;pbb\x06proto3"
+	"StreamChat\x12\x19.conversation.ChatRequest\x1a\x1a.conversation.ChatResponse(\x010\x01B\x06Z\x04./pbb\x06proto3"
 
 var (
-	file_conversation_proto_rawDescOnce sync.Once
-	file_conversation_proto_rawDescData []byte
+	file_proto_conversation_proto_rawDescOnce sync.Once
+	file_proto_conversation_proto_rawDescData []byte
 )
 
-func file_conversation_proto_rawDescGZIP() []byte {
-	file_conversation_proto_rawDescOnce.Do(func() {
-		file_conversation_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_conversation_proto_rawDesc), len(file_conversation_proto_rawDesc)))
+func file_proto_conversation_proto_rawDescGZIP() []byte {
+	file_proto_conversation_proto_rawDescOnce.Do(func() {
+		file_proto_conversation_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_conversation_proto_rawDesc), len(file_proto_conversation_proto_rawDesc)))
 	})
-	return file_conversation_proto_rawDescData
+	return file_proto_conversation_proto_rawDescData
 }
 
-var file_conversation_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
-var file_conversation_proto_goTypes = []any{
+var file_proto_conversation_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_conversation_proto_goTypes = []any{
 	(*ChatRequest)(nil),       // 0: conversation.ChatRequest
 	(*SessionInit)(nil),       // 1: conversation.SessionInit
 	(*SessionEnd)(nil),        // 2: conversation.SessionEnd
 	(*ChatResponse)(nil),      // 3: conversation.ChatResponse
-	(*AudioResponse)(nil),     // 4: conversation.AudioResponse
-	(*TranscriptPartial)(nil), // 5: conversation.TranscriptPartial
-	(*TranscriptFinal)(nil),   // 6: conversation.TranscriptFinal
-	(*TextResponse)(nil),      // 7: conversation.TextResponse
-	(*ErrorResponse)(nil),     // 8: conversation.ErrorResponse
+	(*TranscriptPartial)(nil), // 4: conversation.TranscriptPartial
+	(*TranscriptFinal)(nil),   // 5: conversation.TranscriptFinal
+	(*TextResponse)(nil),      // 6: conversation.TextResponse
+	(*AudioResponse)(nil),     // 7: conversation.AudioResponse
 }
-var file_conversation_proto_depIdxs = []int32{
+var file_proto_conversation_proto_depIdxs = []int32{
 	1, // 0: conversation.ChatRequest.session_init:type_name -> conversation.SessionInit
 	2, // 1: conversation.ChatRequest.session_end:type_name -> conversation.SessionEnd
-	5, // 2: conversation.ChatResponse.transcript_partial:type_name -> conversation.TranscriptPartial
-	6, // 3: conversation.ChatResponse.transcript_final:type_name -> conversation.TranscriptFinal
-	7, // 4: conversation.ChatResponse.text_response:type_name -> conversation.TextResponse
-	8, // 5: conversation.ChatResponse.error:type_name -> conversation.ErrorResponse
-	4, // 6: conversation.ChatResponse.audio_response:type_name -> conversation.AudioResponse
-	0, // 7: conversation.ConversationService.StreamChat:input_type -> conversation.ChatRequest
-	3, // 8: conversation.ConversationService.StreamChat:output_type -> conversation.ChatResponse
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	4, // 2: conversation.ChatResponse.transcript_partial:type_name -> conversation.TranscriptPartial
+	5, // 3: conversation.ChatResponse.transcript_final:type_name -> conversation.TranscriptFinal
+	6, // 4: conversation.ChatResponse.text_response:type_name -> conversation.TextResponse
+	7, // 5: conversation.ChatResponse.audio_response:type_name -> conversation.AudioResponse
+	0, // 6: conversation.ConversationService.StreamChat:input_type -> conversation.ChatRequest
+	3, // 7: conversation.ConversationService.StreamChat:output_type -> conversation.ChatResponse
+	7, // [7:8] is the sub-list for method output_type
+	6, // [6:7] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_conversation_proto_init() }
-func file_conversation_proto_init() {
-	if File_conversation_proto != nil {
+func init() { file_proto_conversation_proto_init() }
+func file_proto_conversation_proto_init() {
+	if File_proto_conversation_proto != nil {
 		return
 	}
-	file_conversation_proto_msgTypes[0].OneofWrappers = []any{
-		(*ChatRequest_AudioChunk)(nil),
+	file_proto_conversation_proto_msgTypes[0].OneofWrappers = []any{
 		(*ChatRequest_SessionInit)(nil),
+		(*ChatRequest_AudioChunk)(nil),
 		(*ChatRequest_SessionEnd)(nil),
 	}
-	file_conversation_proto_msgTypes[3].OneofWrappers = []any{
-		(*ChatResponse_AudioChunk)(nil),
+	file_proto_conversation_proto_msgTypes[3].OneofWrappers = []any{
 		(*ChatResponse_TranscriptPartial)(nil),
 		(*ChatResponse_TranscriptFinal)(nil),
 		(*ChatResponse_TextResponse)(nil),
-		(*ChatResponse_Error)(nil),
 		(*ChatResponse_AudioResponse)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_conversation_proto_rawDesc), len(file_conversation_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_conversation_proto_rawDesc), len(file_proto_conversation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_conversation_proto_goTypes,
-		DependencyIndexes: file_conversation_proto_depIdxs,
-		MessageInfos:      file_conversation_proto_msgTypes,
+		GoTypes:           file_proto_conversation_proto_goTypes,
+		DependencyIndexes: file_proto_conversation_proto_depIdxs,
+		MessageInfos:      file_proto_conversation_proto_msgTypes,
 	}.Build()
-	File_conversation_proto = out.File
-	file_conversation_proto_goTypes = nil
-	file_conversation_proto_depIdxs = nil
+	File_proto_conversation_proto = out.File
+	file_proto_conversation_proto_goTypes = nil
+	file_proto_conversation_proto_depIdxs = nil
 }
