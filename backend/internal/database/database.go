@@ -95,6 +95,7 @@ func ConnectDB() (*gorm.DB, error) {
 		&model.Participant{},
 		&model.Whiteboard{},
 		&model.ChatLog{},
+		&model.VoiceRecord{},
 		&model.CalendarEvent{},
 		&model.EventAttendee{},
 		&model.WorkspaceFile{},

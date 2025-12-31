@@ -92,9 +92,17 @@ func (c *GrpcClient) Close() error {
 	return nil
 }
 
+// SessionConfig 세션 설정 정보
+type SessionConfig struct {
+	SampleRate    uint32
+	Channels      uint32
+	BitsPerSample uint32
+	Language      string // 번역 대상 언어 (ko, en, ja, zh)
+}
+
 // StartChatStream 양방향 스트리밍 시작
 // 반환: 전송채널, 수신채널, 에러
-func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string) (*ChatStream, error) {
+func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, config *SessionConfig) (*ChatStream, error) {
 	// 취소 가능한 컨텍스트 생성
 	streamCtx, cancel := context.WithCancel(ctx)
 
@@ -103,6 +111,27 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string) (*Ch
 	if err != nil {
 		cancel()
 		return nil, err
+	}
+
+	// SessionInit 메시지 전송 (스트림 시작 시)
+	if config != nil {
+		initReq := &pb.ChatRequest{
+			SessionId: sessionID,
+			Payload: &pb.ChatRequest_SessionInit{
+				SessionInit: &pb.SessionInit{
+					SampleRate:    config.SampleRate,
+					Channels:      config.Channels,
+					BitsPerSample: config.BitsPerSample,
+					Language:      config.Language,
+				},
+			},
+		}
+		if err := stream.Send(initReq); err != nil {
+			cancel()
+			return nil, err
+		}
+		log.Printf("📤 [%s] SessionInit sent: lang=%s, rate=%d, ch=%d, bits=%d",
+			sessionID, config.Language, config.SampleRate, config.Channels, config.BitsPerSample)
 	}
 
 	// 채널 생성

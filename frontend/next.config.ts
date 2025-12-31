@@ -13,6 +13,28 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        source: "/:path*.mjs",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/javascript",
+          },
+        ],
+      },
+      {
+        source: "/:path*.wasm",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/wasm",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

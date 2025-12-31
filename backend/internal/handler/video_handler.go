@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"context"
 	"time"
 
 	"realtime-backend/internal/config"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
+	lksdk "github.com/livekit/server-sdk-go/v2"
 	"gorm.io/gorm"
 )
 
@@ -89,4 +92,126 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(TokenResponse{Token: token})
+}
+
+// RoomParticipant represents a participant in a room
+type RoomParticipant struct {
+	Identity string `json:"identity"`
+	Name     string `json:"name"`
+	JoinedAt int64  `json:"joinedAt"`
+}
+
+// RoomParticipantsResponse represents the response for room participants
+type RoomParticipantsResponse struct {
+	RoomName     string            `json:"roomName"`
+	Participants []RoomParticipant `json:"participants"`
+}
+
+// GetRoomParticipants returns the list of participants in a room
+func (h *VideoHandler) GetRoomParticipants(c *fiber.Ctx) error {
+	roomName := c.Query("roomName")
+	if roomName == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "roomName is required",
+		})
+	}
+
+	// Create RoomService client
+	roomClient := lksdk.NewRoomServiceClient(
+		h.cfg.LiveKit.Host,
+		h.cfg.LiveKit.APIKey,
+		h.cfg.LiveKit.APISecret,
+	)
+
+	// Get participants from the room
+	ctx := context.Background()
+	res, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{
+		Room: roomName,
+	})
+	if err != nil {
+		// Room doesn't exist or no participants - return empty list
+		return c.JSON(RoomParticipantsResponse{
+			RoomName:     roomName,
+			Participants: []RoomParticipant{},
+		})
+	}
+
+	// Convert to response format
+	participants := make([]RoomParticipant, 0, len(res.Participants))
+	for _, p := range res.Participants {
+		participants = append(participants, RoomParticipant{
+			Identity: p.Identity,
+			Name:     p.Name,
+			JoinedAt: p.JoinedAt,
+		})
+	}
+
+	return c.JSON(RoomParticipantsResponse{
+		RoomName:     roomName,
+		Participants: participants,
+	})
+}
+
+// GetAllRoomsParticipants returns participants for multiple rooms
+func (h *VideoHandler) GetAllRoomsParticipants(c *fiber.Ctx) error {
+	// Get room names from query (comma-separated)
+	roomNames := c.Query("rooms")
+	if roomNames == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "rooms parameter is required",
+		})
+	}
+
+	// Create RoomService client
+	roomClient := lksdk.NewRoomServiceClient(
+		h.cfg.LiveKit.Host,
+		h.cfg.LiveKit.APIKey,
+		h.cfg.LiveKit.APISecret,
+	)
+
+	ctx := context.Background()
+	result := make(map[string][]RoomParticipant)
+
+	// Split room names and get participants for each
+	for _, roomName := range splitRoomNames(roomNames) {
+		res, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{
+			Room: roomName,
+		})
+		if err != nil {
+			result[roomName] = []RoomParticipant{}
+			continue
+		}
+
+		participants := make([]RoomParticipant, 0, len(res.Participants))
+		for _, p := range res.Participants {
+			participants = append(participants, RoomParticipant{
+				Identity: p.Identity,
+				Name:     p.Name,
+				JoinedAt: p.JoinedAt,
+			})
+		}
+		result[roomName] = participants
+	}
+
+	return c.JSON(result)
+}
+
+// splitRoomNames splits comma-separated room names
+func splitRoomNames(s string) []string {
+	var result []string
+	current := ""
+	for _, c := range s {
+		if c == ',' {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
 }

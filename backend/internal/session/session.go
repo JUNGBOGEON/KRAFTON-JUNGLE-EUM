@@ -35,19 +35,24 @@ func (s State) String() string {
 
 // TranscriptMessage 자막 메시지
 type TranscriptMessage struct {
-	Type    string `json:"type"`
-	Text    string `json:"text"`
-	IsFinal bool   `json:"isFinal"`
+	Type          string `json:"type"`
+	ParticipantID string `json:"participantId"` // 발화자 식별 ID
+	Text          string `json:"text"`          // 번역된 텍스트 (하위 호환)
+	Original      string `json:"original"`      // 원본 STT 텍스트
+	Translated    string `json:"translated"`    // 번역된 텍스트
+	IsFinal       bool   `json:"isFinal"`
 }
 
 // Session 클라이언트 세션 (Thread-Safe)
 type Session struct {
-	ID          string
-	State       State
-	Metadata    *model.AudioMetadata
-	ConnectedAt time.Time
-	AudioBytes  int64
-	PacketCount uint64
+	ID            string
+	State         State
+	Metadata      *model.AudioMetadata
+	ConnectedAt   time.Time
+	AudioBytes    int64
+	PacketCount   uint64
+	Language      string // 번역 대상 언어 (ko, en, ja, zh)
+	ParticipantID string // 발화자 식별 ID (원격 참가자의 identity)
 
 	// 동시성 제어
 	mu sync.RWMutex
@@ -100,6 +105,41 @@ func (s *Session) GetMetadata() *model.AudioMetadata {
 	defer s.mu.RUnlock()
 
 	return s.Metadata
+}
+
+// SetLanguage 번역 대상 언어 설정
+func (s *Session) SetLanguage(lang string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Language = lang
+}
+
+// GetLanguage 번역 대상 언어 조회
+func (s *Session) GetLanguage() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.Language == "" {
+		return "en" // 기본값: 영어
+	}
+	return s.Language
+}
+
+// SetParticipantID 발화자 식별 ID 설정
+func (s *Session) SetParticipantID(participantID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ParticipantID = participantID
+}
+
+// GetParticipantID 발화자 식별 ID 조회
+func (s *Session) GetParticipantID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.ParticipantID
 }
 
 // GetState 현재 상태 조회

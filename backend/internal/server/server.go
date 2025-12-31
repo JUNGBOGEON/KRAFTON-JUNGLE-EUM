@@ -40,6 +40,7 @@ type Server struct {
 	roleHandler           *handler.RoleHandler
 	videoHandler          *handler.VideoHandler
 	whiteboardHandler     *handler.WhiteboardHandler
+	voiceRecordHandler    *handler.VoiceRecordHandler
 	jwtManager            *auth.JWTManager
 }
 
@@ -79,6 +80,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	roleHandler := handler.NewRoleHandler(db)
 	videoHandler := handler.NewVideoHandler(cfg, db)
 	whiteboardHandler := handler.NewWhiteboardHandler(db)
+	voiceRecordHandler := handler.NewVoiceRecordHandler(db)
 
 	// S3 서비스 초기화 (선택적)
 	var s3Service *storage.S3Service
@@ -113,6 +115,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		roleHandler:           roleHandler,
 		videoHandler:          videoHandler,
 		whiteboardHandler:     whiteboardHandler,
+		voiceRecordHandler:    voiceRecordHandler,
 		jwtManager:            jwtManager,
 	}
 }
@@ -220,6 +223,12 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/start", s.meetingHandler.StartMeeting)
 	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/end", s.meetingHandler.EndMeeting)
 
+	// Voice Record 라우트 (미팅 하위)
+	workspaceGroup.Get("/:workspaceId/meetings/:meetingId/voice-records", s.voiceRecordHandler.GetVoiceRecords)
+	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/voice-records", s.voiceRecordHandler.CreateVoiceRecord)
+	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/voice-records/bulk", s.voiceRecordHandler.CreateVoiceRecordBulk)
+	workspaceGroup.Delete("/:workspaceId/meetings/:meetingId/voice-records", s.voiceRecordHandler.DeleteVoiceRecords)
+
 	// Calendar 라우트 (워크스페이스 하위)
 	workspaceGroup.Get("/:workspaceId/events", s.calendarHandler.GetWorkspaceEvents)
 	workspaceGroup.Post("/:workspaceId/events", s.calendarHandler.CreateEvent)
@@ -241,6 +250,8 @@ func (s *Server) SetupRoutes() {
 
 	// Video Call 라우트
 	s.app.Post("/api/video/token", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GenerateToken)
+	s.app.Get("/api/video/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetRoomParticipants)
+	s.app.Get("/api/video/rooms/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetAllRoomsParticipants)
 
 	// Whiteboard 라우트
 	s.app.Get("/api/whiteboard", s.whiteboardHandler.GetWhiteboard)
@@ -256,7 +267,28 @@ func (s *Server) SetupRoutes() {
 	})
 
 	// WebSocket 오디오 스트리밍 엔드포인트
-	s.app.Get("/ws/audio", websocket.New(s.handler.HandleWebSocket, websocket.Config{
+	s.app.Get("/ws/audio", func(c *fiber.Ctx) error {
+		if !websocket.IsWebSocketUpgrade(c) {
+			return fiber.ErrUpgradeRequired
+		}
+
+		// 언어 파라미터 추출 (기본값: en)
+		lang := c.Query("lang", "en")
+		// 지원하는 언어만 허용
+		switch lang {
+		case "ko", "en", "ja", "zh":
+			// 유효한 언어
+		default:
+			lang = "en"
+		}
+		c.Locals("lang", lang)
+
+		// 발화자 식별 ID 추출 (원격 참가자의 identity)
+		participantId := c.Query("participantId", "")
+		c.Locals("participantId", participantId)
+
+		return c.Next()
+	}, websocket.New(s.handler.HandleWebSocket, websocket.Config{
 		ReadBufferSize:  s.cfg.WebSocket.ReadBufferSize,
 		WriteBufferSize: s.cfg.WebSocket.WriteBufferSize,
 	}))

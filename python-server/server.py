@@ -175,7 +175,13 @@ class Servicer(conversation_pb2_grpc.ConversationServiceServicer):
 
                     print(f"[{n}] {audio_sec:.1f}s | RMS: {rms:.0f} | KO: {ko}")
 
-                    # LLM
+                    # 1. 원본 한국어 STT 결과 전송
+                    yield conversation_pb2.ChatResponse(
+                        session_id=session_id,
+                        transcript_final=conversation_pb2.TranscriptFinal(text=ko)
+                    )
+
+                    # LLM 번역
                     en = translate(ko)
 
                     if not en:
@@ -184,10 +190,10 @@ class Servicer(conversation_pb2_grpc.ConversationServiceServicer):
 
                     print(f"    EN: {en}")
 
-                    # 자막
+                    # 2. 번역된 영어 LLM 결과 전송
                     yield conversation_pb2.ChatResponse(
                         session_id=session_id,
-                        transcript_final=conversation_pb2.TranscriptFinal(text=en)
+                        text_response=conversation_pb2.TextResponse(text=en)
                     )
 
                     # TTS
@@ -211,11 +217,17 @@ class Servicer(conversation_pb2_grpc.ConversationServiceServicer):
                         segs, _ = stt_model.transcribe(arr, language="ko", beam_size=1, vad_filter=False)
                         ko = " ".join(s.text.strip() for s in segs).strip()
                         if ko and ko != "..." and ko != "…":
+                            # 1. 원본 한국어 STT 결과 전송
+                            yield conversation_pb2.ChatResponse(
+                                session_id=session_id,
+                                transcript_final=conversation_pb2.TranscriptFinal(text=ko)
+                            )
                             en = translate(ko)
                             if en:
+                                # 2. 번역된 영어 LLM 결과 전송
                                 yield conversation_pb2.ChatResponse(
                                     session_id=session_id,
-                                    transcript_final=conversation_pb2.TranscriptFinal(text=en)
+                                    text_response=conversation_pb2.TextResponse(text=en)
                                 )
                                 audio = tts(en)
                                 if audio:

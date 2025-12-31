@@ -4,6 +4,17 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ChatRoom } from "../../../lib/api";
 
+interface VoiceParticipant {
+  identity: string;
+  name: string;
+  joinedAt: number;
+}
+
+interface MemberInfo {
+  nickname: string;
+  profileImg?: string;
+}
+
 interface CallParticipant {
   id: number;
   nickname: string;
@@ -76,6 +87,12 @@ export default function Sidebar({
   const [showCreateCallModal, setShowCreateCallModal] = useState(false);
   const [newCallChannelName, setNewCallChannelName] = useState("");
 
+  // 통화방 참가자 목록 (디스코드 스타일)
+  const [voiceParticipants, setVoiceParticipants] = useState<Record<string, VoiceParticipant[]>>({});
+
+  // 워크스페이스 멤버 프로필 맵 (nickname -> profileImg)
+  const [memberProfiles, setMemberProfiles] = useState<Record<string, string>>({});
+
   // 컨텍스트 메뉴 상태
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     isOpen: false,
@@ -110,6 +127,55 @@ export default function Sidebar({
   useEffect(() => {
     loadChatRooms();
   }, [loadChatRooms]);
+
+  // 워크스페이스 멤버 프로필 로드
+  useEffect(() => {
+    const loadMemberProfiles = async () => {
+      try {
+        const workspace = await apiClient.getWorkspace(workspaceId);
+        if (workspace.members) {
+          const profiles: Record<string, string> = {};
+          workspace.members.forEach(member => {
+            if (member.user?.nickname && member.user?.profile_img) {
+              profiles[member.user.nickname] = member.user.profile_img;
+            }
+          });
+          setMemberProfiles(profiles);
+        }
+      } catch (error) {
+        console.error("Failed to load member profiles:", error);
+      }
+    };
+    loadMemberProfiles();
+  }, [workspaceId]);
+
+  // 통화방 참가자 목록 주기적으로 가져오기
+  const fetchVoiceParticipants = useCallback(async () => {
+    if (callChannels.length === 0) return;
+
+    try {
+      const roomNames = callChannels.map(ch => `channel-${ch.id}`);
+      const participants = await apiClient.getAllRoomsParticipants(roomNames);
+      setVoiceParticipants(participants);
+    } catch (error) {
+      console.error("Failed to fetch voice participants:", error);
+    }
+  }, [callChannels]);
+
+  useEffect(() => {
+    fetchVoiceParticipants();
+    const interval = setInterval(fetchVoiceParticipants, 5000); // 5초마다 갱신
+    return () => clearInterval(interval);
+  }, [fetchVoiceParticipants]);
+
+  // 통화 참여/퇴장 시 즉시 갱신
+  useEffect(() => {
+    // 약간의 딜레이 후 갱신 (LiveKit 연결 완료 대기)
+    const timer = setTimeout(() => {
+      fetchVoiceParticipants();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [activeCall, fetchVoiceParticipants]);
 
   // 채팅방 생성
   const handleCreateChatRoom = async () => {
@@ -395,14 +461,16 @@ export default function Sidebar({
                 {item.id === "calls" && item.dynamicChildren && expandedItems.includes(item.id) && !isCollapsed && (
                   <div className="ml-4 pl-4 border-l border-black/10 mt-1 mb-2">
                     {callChannels.map((channel) => {
-                      const isConnected = activeCall?.channelId === channel.id;
-                      const hasParticipants = isConnected && activeCall?.participants && activeCall.participants.length > 0;
+                      const roomName = `channel-${channel.id}`;
+                      const channelParticipants = voiceParticipants[roomName] || [];
+                      const hasParticipants = channelParticipants.length > 0;
+
                       return (
                         <div key={channel.id}>
                           <button
                             onClick={() => handleCallChannelClick(channel.id, channel.label)}
                             className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-sm group ${
-                              isConnected
+                              hasParticipants
                                 ? "bg-green-500/10 text-green-600 font-medium"
                                 : activeSection === channel.id
                                 ? "bg-black/5 text-black font-medium"
@@ -413,38 +481,42 @@ export default function Sidebar({
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15.536a5 5 0 001.414 1.414m2.828-9.9a9 9 0 012.728-2.728" />
                             </svg>
                             <span className="flex-1 text-left">{channel.label}</span>
-                            {isConnected && (
+                            {hasParticipants && (
                               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                             )}
                           </button>
-                          {/* 참여자 목록 */}
+                          {/* 참여자 목록 - 모든 참가자 표시 (내가 통화 중이 아니어도) */}
                           {hasParticipants && (
                             <div className="ml-6 mt-1 space-y-0.5">
-                              {activeCall.participants.map((participant) => (
-                                <div
-                                  key={participant.id}
-                                  className="flex items-center gap-2 px-2 py-1 rounded text-xs text-black/60"
-                                >
-                                  {participant.profileImg ? (
-                                    <img
-                                      src={participant.profileImg}
-                                      alt={participant.nickname}
-                                      className="w-5 h-5 rounded-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                                      <span className="text-[10px] font-medium text-white">
-                                        {participant.nickname.charAt(0).toUpperCase()}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <span className="truncate">{participant.nickname}</span>
-                                  <svg className="w-3 h-3 text-green-500 flex-shrink-0 ml-auto" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                                  </svg>
-                                </div>
-                              ))}
+                              {channelParticipants.map((participant) => {
+                                const displayName = participant.name || participant.identity;
+                                const profileImg = memberProfiles[displayName];
+                                return (
+                                  <div
+                                    key={participant.identity}
+                                    className="flex items-center gap-2 px-2 py-1 rounded text-xs text-black/60"
+                                  >
+                                    {profileImg ? (
+                                      <img
+                                        src={profileImg}
+                                        alt={displayName}
+                                        className="w-5 h-5 rounded-full object-cover flex-shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                                        <span className="text-[10px] font-medium text-green-600">
+                                          {displayName.charAt(0).toUpperCase()}
+                                        </span>
+                                      </div>
+                                    )}
+                                    <span className="truncate">{displayName}</span>
+                                    <svg className="w-3 h-3 text-green-500 flex-shrink-0 ml-auto" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                                    </svg>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -465,39 +537,6 @@ export default function Sidebar({
               </div>
             ))}
           </nav>
-
-          {/* 통화 연결 상태 */}
-          {activeCall && !isCollapsed && (
-            <div className="mx-3 mb-3 p-2.5 bg-black rounded-xl">
-              <div className="flex items-center gap-3">
-                {/* 아이콘 */}
-                <div className="w-8 h-8 rounded-lg bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                  </svg>
-                </div>
-                {/* 정보 */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-green-400">연결됨</span>
-                    <div className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
-                  </div>
-                  <p className="text-sm text-white/70 truncate">{activeCall.channelName}</p>
-                </div>
-                {/* 나가기 버튼 */}
-                <button
-                  onClick={onLeaveCall}
-                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-red-500 flex items-center justify-center transition-colors group"
-                  title="연결 끊기"
-                >
-                  <svg className="w-4 h-4 text-white/50 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.28 3H5z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Footer */}
           {!isCollapsed && (
