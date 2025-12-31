@@ -92,7 +92,7 @@ export default function MembersSection({ workspace, onMembersUpdate, onSectionCh
       // API 호출
       const { id } = await apiClient.getOrCreateDMRoom(workspace.id, targetUserId);
 
-      // 섹션 변경 (채팅방으로 이동) -> DM 구분 위해 dm- 접두사 사용
+      // 섹션 변경 (채팅방으로 이동)
       onSectionChange(`dm-${id}`);
 
       // Refetch unread counts after a short delay

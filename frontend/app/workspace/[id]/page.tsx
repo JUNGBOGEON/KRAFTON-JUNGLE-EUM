@@ -140,14 +140,16 @@ export default function WorkspaceDetailPage() {
       );
     }
 
-    // DM 섹션 처리 (dm-[id])
-    if (activeSection.startsWith("dm-")) {
-      const roomId = parseInt(activeSection.replace("dm-", ""), 10);
-      const canSendMessages = true; // DM은 기본적으로 전송 가능
+    // 채팅방 처리
+    if (activeSection.startsWith("chat-")) {
+      const roomId = parseInt(activeSection.replace("chat-", ""), 10);
+
+      // 채팅방은 멤버 권한 체크가 다를 수 있음 (일단 기본적으로 접근 허용하되, 메시지 전송 권한은 체크)
+      const myMember = workspace.members?.find(m => m.user_id === user?.id);
+      const canSendMessages = workspace.owner_id === user?.id || myMember?.role?.permissions?.includes("SEND_MESSAGES");
 
       return (
         <ChatSection
-          key={activeSection}
           workspaceId={workspace.id}
           roomId={roomId}
           onRoomTitleChange={setCurrentChatRoomTitle}
@@ -157,16 +159,21 @@ export default function WorkspaceDetailPage() {
       );
     }
 
-    // 채팅방 처리
-    if (activeSection.startsWith("chat-")) {
-      const roomId = parseInt(activeSection.replace("chat-", ""), 10);
+    // DM 처리 (Sidebar 하이라이트 분리를 위해 prefix 변경: dm-)
+    if (activeSection.startsWith("dm-")) {
+      const roomId = parseInt(activeSection.replace("dm-", ""), 10);
       const myMember = workspace.members?.find(m => m.user_id === user?.id);
+
+      // DM은 항상 메시지 전송 가능 (블락 기능 등이 없다면)
+      // 또는 워크스페이스 권한을 따름
       const canSendMessages = workspace.owner_id === user?.id || myMember?.role?.permissions?.includes("SEND_MESSAGES");
 
       return (
         <ChatSection
           workspaceId={workspace.id}
           roomId={roomId}
+          // DM은 제목이 상대방 이름이어야 함. ChatSection 내부에서 처리하거나 여기서 넘겨줘야 함
+          // 현재는 ChatSection이 스스로 정보를 가져오려 시도함.
           onRoomTitleChange={setCurrentChatRoomTitle}
           onBack={() => setActiveSection("members")}
           canSendMessages={canSendMessages}

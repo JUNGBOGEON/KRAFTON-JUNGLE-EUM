@@ -91,9 +91,6 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, on
       setMessages(response.messages);
       setTotalMessages(response.total);
       setHasMore(response.messages.length >= MESSAGES_PER_PAGE);
-
-      // 읽음 처리
-      apiClient.markAsRead(workspaceId, roomId).catch(console.error);
     } catch (error) {
       console.error("Failed to load messages:", error);
     } finally {
@@ -244,17 +241,14 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, on
                   }
 
                   // 새 메시지 추가
-                  // 내가 보낸 게 아니면 읽음 처리
-                  if (!isMyMsg) {
-                    apiClient.markAsRead(workspaceId, roomId).catch(console.error);
-                  }
-
                   return [...prev, newMsg];
                 });
 
-                // 다른 사람 메시지일 때만 스크롤
+                // 다른 사람 메시지일 때만 스크롤 및 읽음 처리
                 if (!isMyMsg) {
                   requestAnimationFrame(() => scrollToBottom("smooth"));
+                  // 읽음 처리 (비동기, 에러 무시)
+                  apiClient.markChatRoomAsRead(workspaceId, roomId).catch(() => { });
                 }
               }
               break;

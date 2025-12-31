@@ -153,6 +153,7 @@ func (h *ChatHandler) GetMyDMs(c *fiber.Ctx) error {
 				(SELECT COUNT(*) 
 				 FROM chat_logs cl 
 				 WHERE cl.meeting_id = m.id 
+				   AND cl.sender_id != ?
 				   AND (my_p.last_read_at IS NULL OR cl.created_at > my_p.last_read_at)),
 				0
 			) as unread_count
@@ -162,7 +163,7 @@ func (h *ChatHandler) GetMyDMs(c *fiber.Ctx) error {
 		LEFT JOIN users target_u ON target_p.user_id = target_u.id
 		WHERE m.workspace_id = ? AND m.type = 'DM'
 		ORDER BY m.created_at DESC
-	`, claims.UserID, claims.UserID, workspaceID).Scan(&results).Error
+	`, claims.UserID, claims.UserID, claims.UserID, workspaceID).Scan(&results).Error
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch dms"})
@@ -203,49 +204,4 @@ func (h *ChatHandler) GetMyDMs(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
-}
-
-// MarkMessageAsRead 메시지 읽음 처리 (API endpoint)
-func (h *ChatHandler) MarkMessageAsRead(c *fiber.Ctx) error {
-	claims := c.Locals("claims").(*auth.Claims)
-	workspaceID, err := c.ParamsInt("workspaceId")
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid workspace id"})
-	}
-
-	roomID, err := c.ParamsInt("roomId")
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid room id"})
-	}
-
-	// 멤버 확인
-	if !h.isWorkspaceMember(int64(workspaceID), claims.UserID) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you are not a member of this workspace"})
-	}
-
-	// 채팅방 확인 (DM 또는 ChatRoom)
-	var count int64
-	if err := h.db.Model(&model.Meeting{}).Where("id = ? AND workspace_id = ?", roomID, workspaceID).Count(&count).Error; err != nil || count == 0 {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "chat room not found"})
-	}
-
-	// 참가자 정보 없으면 생성 (채팅방 처음 입장 시 등) - DM은 이미 존재해야 함
-	// 여기서는 단순히 last_read_at 업데이트
-	now := time.Now()
-	result := h.db.Model(&model.Participant{}).
-		Where("meeting_id = ? AND user_id = ?", roomID, claims.UserID).
-		Update("last_read_at", now)
-
-	if result.Error != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update read status"})
-	}
-
-	if result.RowsAffected == 0 {
-		// 참가자가 아닐 경우 (일반 채팅방의 경우 참여 처리가 필요할 수도 있음)
-		// DM의 경우 이미 참가자여야 함.
-		// 일반 채팅방이면 참가자로 추가해주는 로직이 필요할 수 있으나, 여기서는 생략
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "user is not a participant of this room"})
-	}
-
-	return c.JSON(fiber.Map{"message": "marked as read"})
 }
