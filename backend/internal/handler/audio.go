@@ -61,10 +61,16 @@ func (h *AudioHandler) HandleWebSocket(c *websocket.Conn) {
 	// 세션 초기화
 	sess := session.New(h.cfg.Audio.ChannelBufferSize)
 
-	// 언어 파라미터 추출 (Locals에서)
-	if lang, ok := c.Locals("lang").(string); ok && lang != "" {
-		sess.SetLanguage(lang)
-		log.Printf("🌐 [%s] Target language: %s", sess.ID, lang)
+	// 소스 언어 파라미터 추출 (발화자가 말하는 언어)
+	if sourceLang, ok := c.Locals("sourceLang").(string); ok && sourceLang != "" {
+		sess.SetSourceLanguage(sourceLang)
+		log.Printf("🌐 [%s] Source language (speaking): %s", sess.ID, sourceLang)
+	}
+
+	// 타겟 언어 파라미터 추출 (듣고 싶은 언어)
+	if targetLang, ok := c.Locals("targetLang").(string); ok && targetLang != "" {
+		sess.SetLanguage(targetLang)
+		log.Printf("🌐 [%s] Target language (listening): %s", sess.ID, targetLang)
 	}
 
 	// 발화자 식별 ID 추출 (Locals에서)
@@ -262,22 +268,26 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 	// 세션 설정 정보 구성
 	metadata := sess.GetMetadata()
 	participantID := sess.GetParticipantID()
-	targetLang := sess.GetLanguage()
+	sourceLang := sess.GetSourceLanguage() // 발화자가 말하는 언어
+	targetLang := sess.GetLanguage()       // 듣고 싶은 언어
 
-	// 발화자 설정
+	log.Printf("🌐 [%s] Language config: source=%s, target=%s", sess.ID, sourceLang, targetLang)
+
+	// 발화자 설정 - 발화자가 말하는 언어 사용
 	speaker := &ai.SpeakerConfig{
 		ParticipantID:  participantID,
 		Nickname:       participantID, // TODO: 실제 닉네임 가져오기
-		SourceLanguage: targetLang,    // 발화자 언어
+		SourceLanguage: sourceLang,    // 발화자가 말하는 언어
 	}
 
-	// 참가자 설정 (자기 자신만 - TODO: 실제 참가자 목록 가져오기)
+	// 참가자 설정 - 듣는 사람의 타겟 언어 사용
+	// TODO: 실제 참가자 목록 가져오기 (현재는 자기 자신만)
 	participants := []ai.ParticipantConfig{
 		{
 			ParticipantID:      participantID,
 			Nickname:           participantID,
-			TargetLanguage:     targetLang,
-			TranslationEnabled: true,
+			TargetLanguage:     targetLang, // 듣고 싶은 언어
+			TranslationEnabled: sourceLang != targetLang, // 소스와 타겟이 다르면 번역 활성화
 		},
 	}
 
@@ -287,7 +297,7 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 			SampleRate:     metadata.SampleRate,
 			Channels:       uint32(metadata.Channels),
 			BitsPerSample:  uint32(metadata.BitsPerSample),
-			SourceLanguage: targetLang,
+			SourceLanguage: sourceLang, // 발화자가 말하는 언어
 			Participants:   participants,
 			Speaker:        speaker,
 		}
@@ -297,7 +307,7 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 			SampleRate:     16000,
 			Channels:       1,
 			BitsPerSample:  16,
-			SourceLanguage: targetLang,
+			SourceLanguage: sourceLang, // 발화자가 말하는 언어
 			Participants:   participants,
 			Speaker:        speaker,
 		}

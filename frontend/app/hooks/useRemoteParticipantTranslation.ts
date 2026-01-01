@@ -20,7 +20,8 @@ export interface RemoteTranscriptData extends TranscriptData {
 interface UseRemoteParticipantTranslationOptions {
     enabled: boolean;              // TTS 재생 여부 (번역 모드)
     sttEnabled?: boolean;          // STT 항상 활성화 여부 (기본: true)
-    targetLanguage?: TargetLanguage;
+    sourceLanguage?: TargetLanguage;  // 발화자가 말하는 언어 (기본: 'ko')
+    targetLanguage?: TargetLanguage;  // 듣고 싶은 언어 (번역 대상)
     autoPlayTTS?: boolean;
     chunkIntervalMs?: number;
     onTranscript?: (data: RemoteTranscriptData) => void;
@@ -103,7 +104,8 @@ function resample(inputBuffer: Float32Array, inputSampleRate: number, outputSamp
 export function useRemoteParticipantTranslation({
     enabled,
     sttEnabled = true,  // STT는 기본적으로 항상 활성화
-    targetLanguage = 'en',
+    sourceLanguage = 'ko',  // 발화자가 말하는 언어 (기본: 한국어)
+    targetLanguage = 'en',  // 듣고 싶은 언어 (기본: 영어)
     autoPlayTTS = true,
     chunkIntervalMs = CHUNK_INTERVAL_MS,
     onTranscript,
@@ -121,6 +123,7 @@ export function useRemoteParticipantTranslation({
     const streamsRef = useRef<Map<string, ParticipantStream>>(new Map());
     const enabledRef = useRef(enabled);
     const sttEnabledRef = useRef(sttEnabled);
+    const sourceLanguageRef = useRef(sourceLanguage);
     const targetLanguageRef = useRef(targetLanguage);
     const autoPlayTTSRef = useRef(autoPlayTTS);
     const chunkIntervalMsRef = useRef(chunkIntervalMs);
@@ -160,6 +163,7 @@ export function useRemoteParticipantTranslation({
     useEffect(() => {
         enabledRef.current = enabled;
         sttEnabledRef.current = sttEnabled;
+        sourceLanguageRef.current = sourceLanguage;
         targetLanguageRef.current = targetLanguage;
         autoPlayTTSRef.current = autoPlayTTS;
         chunkIntervalMsRef.current = chunkIntervalMs;
@@ -170,7 +174,7 @@ export function useRemoteParticipantTranslation({
         unduckAllRef.current = unduckAll;
         queueAudioRef.current = queueAudio;
         stopAudioRef.current = stopAudio;
-    }, [enabled, sttEnabled, targetLanguage, autoPlayTTS, chunkIntervalMs, onTranscript, onError, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAudio]);
+    }, [enabled, sttEnabled, sourceLanguage, targetLanguage, autoPlayTTS, chunkIntervalMs, onTranscript, onError, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAudio]);
 
     // Update local participant identity ref
     useEffect(() => {
@@ -308,8 +312,8 @@ export function useRemoteParticipantTranslation({
         try {
             console.log(`[RemoteTranslation] Creating stream for ${participantId}`);
 
-            // Create WebSocket with participantId
-            const wsUrl = `${WS_BASE_URL}?lang=${targetLanguageRef.current}&participantId=${encodeURIComponent(participantId)}`;
+            // Create WebSocket with participantId and language params
+            const wsUrl = `${WS_BASE_URL}?sourceLang=${sourceLanguageRef.current}&targetLang=${targetLanguageRef.current}&participantId=${encodeURIComponent(participantId)}`;
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
 

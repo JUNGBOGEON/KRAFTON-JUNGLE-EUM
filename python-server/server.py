@@ -69,7 +69,7 @@ class Config:
     WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
-    LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+    LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-4B")
 
     # AWS Polly
     AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
@@ -202,11 +202,20 @@ class Participant:
 
 
 @dataclass
+class Speaker:
+    """발화자 정보"""
+    participant_id: str
+    nickname: str
+    profile_img: str
+    source_language: str
+
+
+@dataclass
 class SessionState:
     """세션 상태 관리"""
     session_id: str
     room_id: str
-    speaker: Participant
+    speaker: Speaker
     participants: Dict[str, Participant] = field(default_factory=dict)
 
     # 오디오 버퍼
@@ -299,8 +308,10 @@ class ModelManager:
             self.llm = LLM(
                 model=Config.LLM_MODEL,
                 trust_remote_code=True,
-                tensor_parallel_size=1,
-                gpu_memory_utilization=0.8,
+                max_model_len=2048,
+                gpu_memory_utilization=0.6,
+                max_num_seqs=64,
+                disable_log_stats=True,
             )
             self.sampling_params = SamplingParams(
                 max_tokens=256,
@@ -532,12 +543,11 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
                     init = request.session_init
 
                     # 발화자 정보
-                    speaker = Participant(
+                    speaker = Speaker(
                         participant_id=init.speaker.participant_id,
                         nickname=init.speaker.nickname,
                         profile_img=init.speaker.profile_img,
-                        target_language=init.speaker.source_language,
-                        translation_enabled=False  # 발화자 자신은 번역 수신 X
+                        source_language=init.speaker.source_language,
                     )
 
                     # 참가자 목록
