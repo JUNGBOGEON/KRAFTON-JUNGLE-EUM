@@ -1,5 +1,5 @@
 """
-Python gRPC AI Server - v6 (Production)
+Python gRPC AI Server - v7 (Production)
 
 Features:
 - Adaptive Buffering based on Language Topology
@@ -7,7 +7,7 @@ Features:
 - VAD-based Sentence Detection
 - Amazon Polly TTS
 - Faster-Whisper Large-v3 (CUDA)
-- Qwen2.5-14B Translation (vLLM)
+- NLLB-200-3.3B Translation (Meta's No Language Left Behind)
 """
 
 import sys
@@ -29,13 +29,8 @@ import torch
 import boto3
 from faster_whisper import WhisperModel
 
-# vLLM for efficient LLM inference
-try:
-    from vllm import LLM, SamplingParams
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+# NLLB Translation Model
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from generated import conversation_pb2
@@ -60,7 +55,7 @@ class Config:
     SENTENCE_MAX_BYTES = int(BYTES_PER_SECOND * SENTENCE_MAX_DURATION_MS / 1000)
 
     # VAD settings
-    SILENCE_THRESHOLD_RMS = 300  # RMS 침묵 임계값
+    SILENCE_THRESHOLD_RMS = 150  # RMS 침묵 임계값 (낮출수록 더 민감하게 음성 감지)
     SILENCE_DURATION_MS = 700    # 문장 끝 감지용 침묵 지속 시간
     SILENCE_FRAMES = int(SILENCE_DURATION_MS / 100)  # 100ms 프레임 기준
 
@@ -69,7 +64,24 @@ class Config:
     WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
-    LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
+    # NLLB Translation Model (Meta's No Language Left Behind)
+    NLLB_MODEL = os.getenv("NLLB_MODEL", "facebook/nllb-200-3.3B")
+
+    # NLLB Language Codes
+    NLLB_LANG_CODES = {
+        "ko": "kor_Hang",  # Korean
+        "en": "eng_Latn",  # English
+        "ja": "jpn_Jpan",  # Japanese
+        "zh": "zho_Hans",  # Chinese (Simplified)
+        "es": "spa_Latn",  # Spanish
+        "fr": "fra_Latn",  # French
+        "de": "deu_Latn",  # German
+        "pt": "por_Latn",  # Portuguese
+        "ru": "rus_Cyrl",  # Russian
+        "ar": "arb_Arab",  # Arabic
+        "hi": "hin_Deva",  # Hindi
+        "tr": "tur_Latn",  # Turkish
+    }
 
     # AWS Polly
     AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
@@ -301,41 +313,15 @@ class ModelManager:
         )
         print("      ✓ Whisper loaded")
 
-        # LLM: Qwen2.5-14B
-        print(f"[2/3] Loading LLM {Config.LLM_MODEL}...")
-        if VLLM_AVAILABLE and Config.WHISPER_DEVICE == "cuda":
-            # vLLM for efficient GPU inference
-            # Qwen3-8B: ~16GB at FP16, Whisper large-v3: ~3GB
-            # A10G has 24GB, so we use 0.65 utilization for LLM
-            self.llm = LLM(
-                model=Config.LLM_MODEL,
-                trust_remote_code=True,
-                max_model_len=2048,
-                gpu_memory_utilization=0.65,
-                max_num_seqs=32,  # Reduced for larger model
-                disable_log_stats=True,
-                dtype="float16",
-            )
-            self.sampling_params = SamplingParams(
-                max_tokens=256,
-                temperature=0.1,
-                top_p=0.9,
-            )
-            self.use_vllm = True
-            print("      ✓ LLM loaded (vLLM)")
-        else:
-            # Fallback to transformers
-            self.llm_tokenizer = AutoTokenizer.from_pretrained(
-                Config.LLM_MODEL, trust_remote_code=True
-            )
-            self.llm_model = AutoModelForCausalLM.from_pretrained(
-                Config.LLM_MODEL,
-                torch_dtype=torch.float16 if Config.WHISPER_DEVICE == "cuda" else "auto",
-                device_map="auto",
-                trust_remote_code=True
-            )
-            self.use_vllm = False
-            print("      ✓ LLM loaded (transformers)")
+        # Translation: NLLB-200 (Meta's No Language Left Behind)
+        print(f"[2/3] Loading NLLB {Config.NLLB_MODEL}...")
+        self.nllb_tokenizer = AutoTokenizer.from_pretrained(Config.NLLB_MODEL)
+        self.nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
+            Config.NLLB_MODEL,
+            torch_dtype=torch.float16 if Config.WHISPER_DEVICE == "cuda" else torch.float32,
+            device_map="auto",
+        )
+        print("      ✓ NLLB loaded (~7GB VRAM)")
 
         # TTS: Amazon Polly
         print("[3/3] Initializing Amazon Polly...")
@@ -397,11 +383,11 @@ class ModelManager:
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         """
-        텍스트 번역
+        텍스트 번역 (NLLB-200)
 
         Args:
             text: 원본 텍스트
-            source_lang: 소스 언어 코드
+            source_lang: 소스 언어 코드 (ko, en, ja, zh 등)
             target_lang: 타겟 언어 코드
 
         Returns:
@@ -410,52 +396,43 @@ class ModelManager:
         if not text.strip():
             return ""
 
-        # 언어 이름 매핑
-        lang_names = {
-            "ko": "Korean", "en": "English", "zh": "Chinese",
-            "ja": "Japanese", "es": "Spanish", "fr": "French",
-            "de": "German", "pt": "Portuguese", "ru": "Russian",
-            "ar": "Arabic", "hi": "Hindi", "tr": "Turkish",
-        }
+        # NLLB 언어 코드로 변환
+        source_nllb = Config.NLLB_LANG_CODES.get(source_lang, "eng_Latn")
+        target_nllb = Config.NLLB_LANG_CODES.get(target_lang, "eng_Latn")
 
-        source_name = lang_names.get(source_lang, source_lang)
-        target_name = lang_names.get(target_lang, target_lang)
-
-        # 프롬프트 구성
-        prompt = f"""You are a professional real-time interpreter. Translate the following {source_name} text to {target_name}.
-Keep the translation natural and conversational. Only output the translation, nothing else.
-
-{source_name}: {text}
-{target_name}:"""
+        # 같은 언어면 번역 불필요
+        if source_lang == target_lang:
+            return text
 
         try:
-            if self.use_vllm:
-                outputs = self.llm.generate([prompt], self.sampling_params)
-                result = outputs[0].outputs[0].text.strip()
-            else:
-                messages = [{"role": "user", "content": prompt}]
-                formatted = self.llm_tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+            # 소스 언어 설정
+            self.nllb_tokenizer.src_lang = source_nllb
+
+            # 토크나이즈
+            inputs = self.nllb_tokenizer(
+                text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512
+            ).to(self.nllb_model.device)
+
+            # 타겟 언어 토큰 ID
+            forced_bos_token_id = self.nllb_tokenizer.convert_tokens_to_ids(target_nllb)
+
+            # 번역 생성
+            with torch.no_grad():
+                outputs = self.nllb_model.generate(
+                    **inputs,
+                    forced_bos_token_id=forced_bos_token_id,
+                    max_new_tokens=256,
+                    num_beams=5,
+                    early_stopping=True,
                 )
-                inputs = self.llm_tokenizer(formatted, return_tensors="pt").to(self.llm_model.device)
 
-                with torch.no_grad():
-                    outputs = self.llm_model.generate(
-                        **inputs,
-                        max_new_tokens=256,
-                        do_sample=True,
-                        temperature=0.1,
-                        top_p=0.9,
-                        pad_token_id=self.llm_tokenizer.eos_token_id
-                    )
-
-                result = self.llm_tokenizer.decode(
-                    outputs[0][inputs.input_ids.shape[1]:],
-                    skip_special_tokens=True
-                ).strip()
-
-            # 첫 줄만 반환 (줄바꿈 이후 무시)
-            return result.split("\n")[0].strip()
+            # 디코딩
+            result = self.nllb_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            return result.strip()
 
         except Exception as e:
             print(f"[Translation Error] {e}")
@@ -511,7 +488,12 @@ Keep the translation natural and conversational. Only output the translation, no
             return audio_data, duration_ms
 
         except Exception as e:
-            print(f"[TTS Error] {e}")
+            error_name = type(e).__name__
+            if "AccessDenied" in str(e) or "AccessDenied" in error_name:
+                print(f"[TTS Error] ❌ AWS Polly AccessDeniedException - IAM 권한 필요!")
+                print(f"[TTS Error] IAM 사용자에 'AmazonPollyFullAccess' 정책을 추가하세요.")
+            else:
+                print(f"[TTS Error] {error_name}: {e}")
             return b"", 0
 
 
@@ -692,8 +674,11 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
         """
         # RMS 체크 (침묵 필터링)
         rms = state.vad.calculate_rms(audio_bytes)
+        print(f"[Audio] Received {len(audio_bytes)} bytes, RMS={rms:.0f}, threshold={Config.SILENCE_THRESHOLD_RMS}")
+
         if rms < Config.SILENCE_THRESHOLD_RMS:
             state.silence_skipped += 1
+            print(f"[Audio] Skipped (silence): RMS {rms:.0f} < {Config.SILENCE_THRESHOLD_RMS}")
             return
 
         state.chunks_processed += 1
@@ -705,10 +690,14 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
 
         # STT
         source_lang = state.speaker.source_language
+        print(f"[STT] Starting transcription: lang={source_lang}, samples={len(audio_array)}")
         original_text, confidence = self.models.transcribe(audio_array, source_lang)
 
         if not original_text:
+            print(f"[STT] No text detected from audio")
             return
+
+        print(f"[STT] Result: \"{original_text}\" (confidence: {confidence:.2f})")
 
         audio_sec = len(audio_bytes) / Config.BYTES_PER_SECOND
         print(f"[{state.chunks_processed}] {audio_sec:.1f}s | RMS: {rms:.0f} | {source_lang}: {original_text}")
@@ -762,9 +751,11 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
             target_lang = translation.target_language
             translated_text = translation.translated_text
 
+            print(f"[TTS] Synthesizing: \"{translated_text}\" (lang={target_lang})")
             audio_data, duration_ms = self.models.synthesize_speech(translated_text, target_lang)
 
             if audio_data:
+                print(f"[TTS] Generated {len(audio_data)} bytes, duration={duration_ms}ms")
                 yield conversation_pb2.ChatResponse(
                     session_id=state.session_id,
                     room_id=state.room_id,
@@ -779,6 +770,8 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
                         speaker_participant_id=state.speaker.participant_id
                     )
                 )
+            else:
+                print(f"[TTS] Failed to generate audio for: \"{translated_text}\"")
 
     def UpdateParticipantSettings(self, request, context):
         """참가자 설정 업데이트"""
@@ -825,15 +818,16 @@ def serve():
     server.add_insecure_port(f'0.0.0.0:{Config.GRPC_PORT}')
     server.start()
 
+    nllb_name = Config.NLLB_MODEL.split('/')[-1]
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
-║  Python AI Server                                            ║
+║  Python AI Server v7                                         ║
 ╠══════════════════════════════════════════════════════════════╣
-║  gRPC Port:     {Config.GRPC_PORT}                           ║
-║  Device:        {Config.WHISPER_DEVICE.upper()}              ║
+║  gRPC Port:     {Config.GRPC_PORT}                                        ║
+║  Device:        {Config.WHISPER_DEVICE.upper()}                                       ║
 ╠══════════════════════════════════════════════════════════════╣
-║  STT:           Whisper {Config.WHISPER_MODEL}               ║
-║  LLM:           {Config.LLM_MODEL.split('/')[-1]}            ║
+║  STT:           Whisper {Config.WHISPER_MODEL}                            ║
+║  Translation:   {nllb_name}                              ║
 ║  TTS:           Amazon Polly                                 ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Buffering Strategies:                                       ║

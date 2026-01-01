@@ -189,6 +189,10 @@ export function useRemoteParticipantTranslation({
         [participants]
     );
 
+    // Track previous language settings to detect changes
+    const prevSourceLanguageRef = useRef(sourceLanguage);
+    const prevTargetLanguageRef = useRef(targetLanguage);
+
     // Helper functions using refs (not useCallback to avoid dependency issues)
     const cleanupParticipantStream = (participantId: string) => {
         const stream = streamsRef.current.get(participantId);
@@ -295,6 +299,12 @@ export function useRemoteParticipantTranslation({
 
         const participantId = participant.identity;
         const isLocal = participantId === localParticipantIdRef.current;
+
+        // Skip local participant - we only translate remote participants
+        if (isLocal) {
+            console.log(`[RemoteTranslation] Skipping local participant: ${participantId}`);
+            return;
+        }
 
         // Check if already exists
         if (streamsRef.current.has(participantId)) {
@@ -434,30 +444,51 @@ export function useRemoteParticipantTranslation({
         }
     };
 
-    // Main effect: Manage streams based on sttEnabled and participant changes
+    // Main effect: Manage streams based on sttEnabled, participant changes, and language changes
     useEffect(() => {
         if (!sttEnabled) {
             console.log(`[RemoteTranslation] Stopping STT`);
             cleanupAllStreams();
             setIsActive(false);
+            prevSourceLanguageRef.current = sourceLanguage;
+            prevTargetLanguageRef.current = targetLanguage;
             return;
         }
+
+        // Check if language has changed - if so, recreate all streams
+        const languageChanged =
+            prevSourceLanguageRef.current !== sourceLanguage ||
+            prevTargetLanguageRef.current !== targetLanguage;
+
+        if (languageChanged && streamsRef.current.size > 0) {
+            console.log(`[RemoteTranslation] Language changed: ${prevSourceLanguageRef.current}->${sourceLanguage}, ${prevTargetLanguageRef.current}->${targetLanguage}`);
+            console.log(`[RemoteTranslation] Recreating all streams with new language settings...`);
+            cleanupAllStreams();
+        }
+
+        prevSourceLanguageRef.current = sourceLanguage;
+        prevTargetLanguageRef.current = targetLanguage;
 
         // Parse participant IDs from the memoized string
         const currentIds = participantIds ? participantIds.split(',').filter(Boolean) : [];
 
-        console.log(`[RemoteTranslation] STT enabled, managing ${currentIds.length} participants (including local)`);
+        // Count remote participants only (exclude local)
+        const remoteCount = currentIds.filter(id => id !== localParticipantIdRef.current).length;
+        console.log(`[RemoteTranslation] STT enabled, managing ${remoteCount} remote participants`);
         setIsActive(true);
 
         const currentParticipantIds = new Set(currentIds);
         const existingStreamIds = new Set(streamsRef.current.keys());
 
-        // Find participants to add
-        const participantsToAdd = participants.filter(p => !existingStreamIds.has(p.identity));
+        // Find REMOTE participants to add (exclude local participant)
+        const participantsToAdd = participants.filter(p =>
+            !existingStreamIds.has(p.identity) &&
+            p.identity !== localParticipantIdRef.current
+        );
 
-        // Add new participants
+        // Add new remote participants only
         participantsToAdd.forEach(participant => {
-            console.log(`[RemoteTranslation] Creating stream for: ${participant.identity} (isLocal: ${participant.isLocal})`);
+            console.log(`[RemoteTranslation] Creating stream for REMOTE: ${participant.identity}`);
             createParticipantStream(participant as RemoteParticipant);
         });
 
@@ -469,7 +500,7 @@ export function useRemoteParticipantTranslation({
             }
         });
 
-        setActiveParticipantCount(currentIds.length);
+        setActiveParticipantCount(remoteCount);
 
         // Cleanup on unmount or when sttEnabled changes
         return () => {
@@ -478,9 +509,9 @@ export function useRemoteParticipantTranslation({
                 cleanupAllStreams();
             }
         };
-    // Only depend on sttEnabled and participantIds - everything else uses refs
+    // Depend on sttEnabled, participantIds, and language changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sttEnabled, participantIds]);
+    }, [sttEnabled, participantIds, sourceLanguage, targetLanguage]);
 
     // Cleanup on unmount
     useEffect(() => {
