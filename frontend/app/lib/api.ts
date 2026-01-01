@@ -323,6 +323,10 @@ class ApiClient {
       throw new Error(error.error || 'Request failed');
     }
 
+    if (response.status === 204) {
+      return {} as T;
+    }
+
     return response.json();
   }
 

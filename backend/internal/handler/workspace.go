@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"fmt"
+	"log"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
@@ -560,9 +563,13 @@ func (h *WorkspaceHandler) DeleteWorkspace(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid workspace id"})
 	}
 
+	// [Debug] Log deletion attempt
+	log.Printf("Deleting workspace: ID=%d, UserID=%d", workspaceID, claims.UserID)
+
 	var workspace model.Workspace
 	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+		log.Printf("Workspace not found for deletion: ID=%d, Error=%v", workspaceID, err)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": fmt.Sprintf("workspace %d not found: %v", workspaceID, err)})
 	}
 
 	// 권한 확인 (ADMIN)
@@ -573,6 +580,9 @@ func (h *WorkspaceHandler) DeleteWorkspace(c *fiber.Ctx) error {
 	if !hasPermission {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you do not have permission to delete workspace"})
 	}
+
+	// [Debug] Permission checked
+	log.Printf("Permission checked for deletion: ID=%d, UserID=%d", workspaceID, claims.UserID)
 
 	// Soft Delete or Hard Delete? GORM default Delete is Soft Delete if DeletedAt field exists.
 	// Workspace struct does not have DeletedAt yet (based on previous view), so checking entity.go.
