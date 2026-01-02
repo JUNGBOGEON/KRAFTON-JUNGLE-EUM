@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	internalAuth "realtime-backend/internal/auth"
@@ -117,8 +118,14 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 		Room:     req.RoomName,
 	}
 
+	// User ID를 Identity로 사용
+	identity := req.ParticipantName
+	if userID, ok := c.Locals("userId").(int64); ok {
+		identity = fmt.Sprintf("%d", userID)
+	}
+
 	at.AddGrant(grant).
-		SetIdentity(req.ParticipantName).
+		SetIdentity(identity).
 		SetName(req.ParticipantName).
 		SetMetadata(string(metadataJSON)).
 		SetValidFor(time.Hour * 24)

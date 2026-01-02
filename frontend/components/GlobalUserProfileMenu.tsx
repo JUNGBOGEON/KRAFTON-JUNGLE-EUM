@@ -129,21 +129,21 @@ export default function GlobalUserProfileMenu({ onClose, onEditProfile, onLogout
                             <button
                                 onClick={() => {
                                     setIsEditingStatus(true);
-                                    setStatusText(myPresence?.status_message || "");
-                                    setStatusEmoji(myPresence?.status_message_emoji || "💬");
+                                    setStatusText(myPresence?.custom_status_text || "");
+                                    setStatusEmoji(myPresence?.custom_status_emoji || "💬");
                                 }}
                                 className="w-full group"
                             >
-                                {(myPresence?.status_message || myPresence?.status_message_emoji) ? (
+                                {(myPresence?.custom_status_text || myPresence?.custom_status_emoji) ? (
                                     <div className="relative overflow-hidden bg-white border border-black/10 p-3 rounded-xl shadow-sm hover:shadow-md hover:border-black/20 transition-all duration-300 text-left">
                                         <div className="absolute top-0 left-0 w-1 h-full bg-black/5 group-hover:bg-black/10 transition-colors" />
                                         <div className="pl-3 flex items-center justify-between">
                                             <div className="flex items-center gap-2.5 overflow-hidden">
                                                 <span className="text-2xl filter drop-shadow-sm group-hover:scale-110 transition-transform duration-300">
-                                                    {myPresence.status_message_emoji || "💬"}
+                                                    {myPresence.custom_status_emoji || "💬"}
                                                 </span>
                                                 <span className="font-medium text-black/80 truncate text-sm">
-                                                    {myPresence.status_message || "상태 메시지 없음"}
+                                                    {myPresence.custom_status_text || "상태 메시지 없음"}
                                                 </span>
                                             </div>
                                             <div className="w-6 h-6 rounded-full bg-black/5 flex items-center justify-center text-black/40 group-hover:bg-black/10 group-hover:text-black transition-all">

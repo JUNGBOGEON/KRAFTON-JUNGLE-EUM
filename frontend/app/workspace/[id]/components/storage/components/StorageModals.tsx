@@ -4,6 +4,12 @@ import { useState, useEffect } from "react";
 import { CreateFolderModalProps, RenameModalProps, MediaPreviewModalProps, DeleteModalProps } from "../types";
 import { formatFileSize, isVideoFile } from "../utils";
 
+// PPT/PDF 등 문서 파일인지 확인
+const isDocFile = (file: { name: string }) => {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  return ['ppt', 'pptx', 'pdf', 'doc', 'docx', 'xls', 'xlsx'].includes(ext);
+};
+
 // 새 폴더 생성 모달
 export function CreateFolderModal({ isOpen, onClose, onCreate, isCreating }: CreateFolderModalProps) {
   const [folderName, setFolderName] = useState("");
@@ -198,11 +204,18 @@ export function DeleteModal({ isOpen, file, onClose, onDelete, isDeleting }: Del
   );
 }
 
-// 미디어 미리보기 모달 (이미지 + 동영상)
-export function MediaPreviewModal({ file, mediaUrl, onClose }: MediaPreviewModalProps) {
+// 파일 미리보기 모달 (이미지 + 동영상 + 문서)
+export function FilePreviewModal({ file, mediaUrl, onClose }: MediaPreviewModalProps) {
   if (!file) return null;
 
   const isVideo = isVideoFile(file);
+  // PDF는 네이티브 뷰어 사용, 그 외 문서는 구글 뷰어 사용
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const isPdf = ext === 'pdf';
+  const isOfficeDoc = ['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx'].includes(ext);
+
+  // 로컬/비공개 환경 체크 (Google Viewer가 접근 불가)
+  const isLocalhost = mediaUrl?.includes('localhost') || mediaUrl?.includes('127.0.0.1') || mediaUrl?.startsWith('/');
 
   return (
     <div
@@ -260,6 +273,38 @@ export function MediaPreviewModal({ file, mediaUrl, onClose }: MediaPreviewModal
               autoPlay
               className="max-w-full max-h-[85vh] rounded-lg animate-in fade-in zoom-in-95 duration-300"
             />
+          ) : isPdf ? (
+            <iframe
+              src={mediaUrl}
+              className="w-[80vw] h-[85vh] bg-white rounded-lg animate-in fade-in zoom-in-95 duration-300"
+              frameBorder="0"
+            />
+          ) : isOfficeDoc ? (
+            isLocalhost ? (
+              <div className="flex flex-col items-center justify-center p-8 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 text-center animate-in fade-in zoom-in-95 duration-300">
+                <svg className="w-16 h-16 text-white/50 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-xl font-bold text-white mb-2">미리보기를 불러올 수 없음</h3>
+                <p className="text-white/70 max-w-md mb-6">
+                  로컬 개발 환경(localhost)에서는 Google 문서 뷰어를 사용할 수 없습니다.
+                  <br />
+                  배포된 환경에서 정상적으로 작동합니다.
+                </p>
+                <button
+                  onClick={() => window.open(mediaUrl, "_blank")}
+                  className="px-6 py-2.5 bg-white text-gray-900 rounded-xl font-semibold hover:bg-gray-100 transition-colors"
+                >
+                  새 탭에서 열기
+                </button>
+              </div>
+            ) : (
+              <iframe
+                src={`https://docs.google.com/gview?url=${encodeURIComponent(mediaUrl)}&embedded=true`}
+                className="w-[80vw] h-[85vh] bg-white rounded-lg animate-in fade-in zoom-in-95 duration-300"
+                frameBorder="0"
+              />
+            )
           ) : (
             <img
               src={mediaUrl}

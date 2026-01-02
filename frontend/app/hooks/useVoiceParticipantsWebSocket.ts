@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 
 const WS_BASE_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'ws://localhost:8080';
 
-interface VoiceParticipant {
+export interface VoiceParticipant {
     identity: string;
     name: string;
     channelId?: string;

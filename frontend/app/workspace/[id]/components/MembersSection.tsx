@@ -217,12 +217,12 @@ export default function MembersSection({ workspace, onMembersUpdate, onSectionCh
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-black">{member.name}</span>
                     {/* Status Emoji Display */}
-                    {(presence?.status_message_emoji || presence?.status_message) && (
-                      <div className="group/status flex items-center gap-1.5 ml-1 px-2 py-0.5 rounded-full bg-black/[0.03] border border-black/5" title={presence.status_message}>
-                        <span className="text-sm leading-none">{presence.status_message_emoji || "💬"}</span>
-                        {presence.status_message && (
+                    {(presence?.custom_status_emoji || presence?.custom_status_text) && (
+                      <div className="group/status flex items-center gap-1.5 ml-1 px-2 py-0.5 rounded-full bg-black/[0.03] border border-black/5" title={presence.custom_status_text}>
+                        <span className="text-sm leading-none">{presence.custom_status_emoji || "💬"}</span>
+                        {presence.custom_status_text && (
                           <span className="text-xs text-black/60 max-w-[120px] truncate hidden sm:inline-block">
-                            {presence.status_message}
+                            {presence.custom_status_text}
                           </span>
                         )}
                       </div>

@@ -19,4 +19,8 @@ export { default as StorageHeader } from "./components/StorageHeader";
 export { default as SkeletonLoader } from "./components/SkeletonLoader";
 export { default as EmptyState } from "./components/EmptyState";
 export { default as DragOverlay } from "./components/DragOverlay";
-export { CreateFolderModal, RenameModal, DeleteModal, MediaPreviewModal } from "./components/StorageModals";
+export {
+    CreateFolderModal, RenameModal,
+    DeleteModal,
+    FilePreviewModal,
+} from "./components/StorageModals";

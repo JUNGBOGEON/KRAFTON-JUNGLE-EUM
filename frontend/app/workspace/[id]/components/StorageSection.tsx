@@ -13,7 +13,7 @@ import {
   CreateFolderModal,
   RenameModal,
   DeleteModal,
-  MediaPreviewModal,
+  FilePreviewModal,
   WorkspaceFile,
 } from "./storage";
 
@@ -86,9 +86,18 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
   // File click handler with media preview
   const handleFileClick = useCallback(async (file: WorkspaceFile) => {
     const result = await baseHandleFileClick(file);
-    if (result?.isMedia) {
+    if (!result || !result.url) return;
+
+    // PPT/PDF 등 문서 파일인지 확인 (확장자 기반)
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const isDoc = ['ppt', 'pptx', 'pdf', 'doc', 'docx', 'xls', 'xlsx'].includes(ext);
+
+    if (result.isMedia || isDoc) {
       setPreviewMedia(file);
-      setPreviewMediaUrl(result.mediaUrl);
+      setPreviewMediaUrl(result.url);
+    } else {
+      // 그 외 파일은 다운로드 (새 탭)
+      window.open(result.url, "_blank");
     }
   }, [baseHandleFileClick]);
 
@@ -253,7 +262,7 @@ export default function StorageSection({ workspaceId }: StorageSectionProps) {
         isDeleting={isDeleting}
       />
 
-      <MediaPreviewModal
+      <FilePreviewModal
         file={previewMedia}
         mediaUrl={previewMediaUrl}
         onClose={closeMediaPreview}
