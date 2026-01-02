@@ -75,7 +75,7 @@ export default function GlobalUserProfileMenu({ onClose, onEditProfile, onLogout
 
                                 {/* Emoji Presets */}
                                 <div className="grid grid-cols-6 gap-2 mb-3">
-                                    {["💬", "🕐", "🍔", "📅", "🌴", "🤒", "😀", "😂", "😎", "😴", "🎮", "💻"].map((emoji) => (
+                                    {EMOJI_PRESETS.map((emoji) => (
                                         <button
                                             key={emoji}
                                             type="button"
@@ -161,7 +161,6 @@ export default function GlobalUserProfileMenu({ onClose, onEditProfile, onLogout
                                 )}
                             </button>
                         )}
-
                     </div>
                 </div>
 
@@ -218,3 +217,5 @@ export default function GlobalUserProfileMenu({ onClose, onEditProfile, onLogout
         </>
     );
 }
+
+const EMOJI_PRESETS = ["💬", "🕐", "🍔", "📅", "🌴", "🤒", "😀", "😂", "😎", "😴", "🎮", "💻"];
