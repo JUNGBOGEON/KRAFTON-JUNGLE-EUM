@@ -20,12 +20,12 @@ const (
 	RecvChannelSize = 100
 
 	// gRPC 연결 설정
-	MaxRetries          = 3
-	RetryBackoff        = time.Second
-	KeepAliveTime       = 10 * time.Second
-	KeepAliveTimeout    = 5 * time.Second
-	MaxRecvMsgSize      = 4 * 1024 * 1024 // 4MB
-	MaxSendMsgSize      = 4 * 1024 * 1024 // 4MB
+	MaxRetries       = 3
+	RetryBackoff     = time.Second
+	KeepAliveTime    = 10 * time.Second
+	KeepAliveTimeout = 5 * time.Second
+	MaxRecvMsgSize   = 4 * 1024 * 1024 // 4MB
+	MaxSendMsgSize   = 4 * 1024 * 1024 // 4MB
 )
 
 // GrpcClient Python AI 서버와 통신하는 gRPC 클라이언트
@@ -35,13 +35,66 @@ type GrpcClient struct {
 	addr   string
 }
 
+// TranscriptMessage STT/번역 결과 메시지
+type TranscriptMessage struct {
+	ID               string
+	Speaker          *pb.SpeakerInfo
+	OriginalText     string
+	OriginalLanguage string
+	Translations     []*pb.TranslationEntry
+	IsPartial        bool
+	IsFinal          bool
+	TimestampMs      uint64
+	Confidence       float32
+}
+
+// AudioMessage TTS 오디오 메시지
+type AudioMessage struct {
+	TranscriptID         string
+	TargetLanguage       string
+	TargetParticipantIDs []string
+	AudioData            []byte
+	Format               string
+	SampleRate           uint32
+	DurationMs           uint32
+	SpeakerParticipantID string
+}
+
 // ChatStream 양방향 스트리밍을 위한 채널 묶음
 type ChatStream struct {
-	SendChan chan<- []byte  // 오디오 전송용
-	RecvChan <-chan []byte  // 오디오 수신용
-	TextChan <-chan string  // 텍스트 수신용 (STT/LLM)
-	ErrChan  <-chan error   // 에러 수신용
-	Cancel   context.CancelFunc
+	SendChan       chan<- []byte            // 오디오 전송용
+	RecvChan       <-chan []byte            // 오디오 수신용 (레거시 호환)
+	TranscriptChan <-chan *TranscriptMessage // STT/번역 결과
+	AudioChan      <-chan *AudioMessage      // TTS 오디오 (타겟별)
+	ErrChan        <-chan error              // 에러 수신용
+	Cancel         context.CancelFunc
+}
+
+// ParticipantConfig 참가자 설정
+type ParticipantConfig struct {
+	ParticipantID      string
+	Nickname           string
+	ProfileImg         string
+	TargetLanguage     string
+	TranslationEnabled bool
+}
+
+// SpeakerConfig 발화자 설정
+type SpeakerConfig struct {
+	ParticipantID  string
+	Nickname       string
+	ProfileImg     string
+	SourceLanguage string
+}
+
+// SessionConfig 세션 설정 정보
+type SessionConfig struct {
+	SampleRate     uint32
+	Channels       uint32
+	BitsPerSample  uint32
+	SourceLanguage string              // 발화자 언어 (ko, en, ja, zh)
+	Participants   []ParticipantConfig // 회의실 참가자 목록
+	Speaker        *SpeakerConfig      // 발화자 정보
 }
 
 // NewGrpcClient 새 gRPC 클라이언트 생성 및 연결
@@ -92,17 +145,8 @@ func (c *GrpcClient) Close() error {
 	return nil
 }
 
-// SessionConfig 세션 설정 정보
-type SessionConfig struct {
-	SampleRate    uint32
-	Channels      uint32
-	BitsPerSample uint32
-	Language      string // 번역 대상 언어 (ko, en, ja, zh)
-}
-
 // StartChatStream 양방향 스트리밍 시작
-// 반환: 전송채널, 수신채널, 에러
-func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, config *SessionConfig) (*ChatStream, error) {
+func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID, roomID string, config *SessionConfig) (*ChatStream, error) {
 	// 취소 가능한 컨텍스트 생성
 	streamCtx, cancel := context.WithCancel(ctx)
 
@@ -115,14 +159,41 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 
 	// SessionInit 메시지 전송 (스트림 시작 시)
 	if config != nil {
+		// 참가자 목록 변환
+		participants := make([]*pb.ParticipantInfo, len(config.Participants))
+		for i, p := range config.Participants {
+			participants[i] = &pb.ParticipantInfo{
+				ParticipantId:      p.ParticipantID,
+				Nickname:           p.Nickname,
+				ProfileImg:         p.ProfileImg,
+				TargetLanguage:     p.TargetLanguage,
+				TranslationEnabled: p.TranslationEnabled,
+			}
+		}
+
+		// 발화자 정보 변환
+		var speaker *pb.SpeakerInfo
+		if config.Speaker != nil {
+			speaker = &pb.SpeakerInfo{
+				ParticipantId:  config.Speaker.ParticipantID,
+				Nickname:       config.Speaker.Nickname,
+				ProfileImg:     config.Speaker.ProfileImg,
+				SourceLanguage: config.Speaker.SourceLanguage,
+			}
+		}
+
 		initReq := &pb.ChatRequest{
-			SessionId: sessionID,
+			SessionId:     sessionID,
+			RoomId:        roomID,
+			ParticipantId: config.Speaker.ParticipantID,
 			Payload: &pb.ChatRequest_SessionInit{
 				SessionInit: &pb.SessionInit{
-					SampleRate:    config.SampleRate,
-					Channels:      config.Channels,
-					BitsPerSample: config.BitsPerSample,
-					Language:      config.Language,
+					SampleRate:     config.SampleRate,
+					Channels:       config.Channels,
+					BitsPerSample:  config.BitsPerSample,
+					SourceLanguage: config.SourceLanguage,
+					Participants:   participants,
+					Speaker:        speaker,
 				},
 			},
 		}
@@ -130,14 +201,15 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 			cancel()
 			return nil, err
 		}
-		log.Printf("📤 [%s] SessionInit sent: lang=%s, rate=%d, ch=%d, bits=%d",
-			sessionID, config.Language, config.SampleRate, config.Channels, config.BitsPerSample)
+		log.Printf("📤 [%s] SessionInit sent: srcLang=%s, participants=%d, rate=%d",
+			sessionID, config.SourceLanguage, len(participants), config.SampleRate)
 	}
 
 	// 채널 생성
 	sendChan := make(chan []byte, SendChannelSize)
-	recvChan := make(chan []byte, RecvChannelSize)
-	textChan := make(chan string, 50)
+	recvChan := make(chan []byte, RecvChannelSize)           // 레거시 호환
+	transcriptChan := make(chan *TranscriptMessage, 50)       // STT/번역 결과
+	audioChan := make(chan *AudioMessage, RecvChannelSize)    // TTS 오디오
 	errChan := make(chan error, 1)
 
 	var wg sync.WaitGroup
@@ -147,6 +219,11 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 	go func() {
 		defer wg.Done()
 		defer stream.CloseSend()
+
+		participantID := ""
+		if config != nil && config.Speaker != nil {
+			participantID = config.Speaker.ParticipantID
+		}
 
 		for {
 			select {
@@ -162,7 +239,9 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 
 				// ChatRequest로 패키징
 				req := &pb.ChatRequest{
-					SessionId: sessionID,
+					SessionId:     sessionID,
+					RoomId:        roomID,
+					ParticipantId: participantID,
 					Payload: &pb.ChatRequest_AudioChunk{
 						AudioChunk: data,
 					},
@@ -186,7 +265,8 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 	go func() {
 		defer wg.Done()
 		defer close(recvChan)
-		defer close(textChan)
+		defer close(transcriptChan)
+		defer close(audioChan)
 
 		for {
 			resp, err := stream.Recv()
@@ -210,40 +290,77 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 
 			// 응답 타입별 처리
 			switch payload := resp.Payload.(type) {
-			case *pb.ChatResponse_AudioResponse:
+			case *pb.ChatResponse_Transcript:
+				// STT + 번역 결과
+				tr := payload.Transcript
+				msg := &TranscriptMessage{
+					ID:               tr.Id,
+					Speaker:          tr.Speaker,
+					OriginalText:     tr.OriginalText,
+					OriginalLanguage: tr.OriginalLanguage,
+					Translations:     tr.Translations,
+					IsPartial:        tr.IsPartial,
+					IsFinal:          tr.IsFinal,
+					TimestampMs:      tr.TimestampMs,
+					Confidence:       tr.Confidence,
+				}
+
+				select {
+				case transcriptChan <- msg:
+				default:
+					log.Printf("⚠️ [%s] Transcript channel full, dropping", sessionID)
+				}
+
+				if tr.IsPartial {
+					log.Printf("🗣️ [%s] STT Partial: %s", sessionID, tr.OriginalText)
+				} else if tr.IsFinal {
+					log.Printf("✅ [%s] STT Final: %s (translations: %d)", sessionID, tr.OriginalText, len(tr.Translations))
+				}
+
+			case *pb.ChatResponse_Audio:
 				// TTS 오디오 응답
-				log.Printf("🔊 [%s] TTS Audio: format=%s, sampleRate=%d, size=%d bytes",
-					sessionID, payload.AudioResponse.Format,
-					payload.AudioResponse.SampleRate, len(payload.AudioResponse.AudioData))
-				select {
-				case recvChan <- payload.AudioResponse.AudioData:
-				default:
-					log.Printf("⚠️ [%s] Recv channel full, dropping TTS audio", sessionID)
+				audio := payload.Audio
+				msg := &AudioMessage{
+					TranscriptID:         audio.TranscriptId,
+					TargetLanguage:       audio.TargetLanguage,
+					TargetParticipantIDs: audio.TargetParticipantIds,
+					AudioData:            audio.AudioData,
+					Format:               audio.Format,
+					SampleRate:           audio.SampleRate,
+					DurationMs:           audio.DurationMs,
+					SpeakerParticipantID: audio.SpeakerParticipantId,
 				}
 
-			case *pb.ChatResponse_TranscriptPartial:
-				// STT 중간 결과 → 텍스트 채널
 				select {
-				case textChan <- "[PARTIAL] " + payload.TranscriptPartial.Text:
+				case audioChan <- msg:
 				default:
+					log.Printf("⚠️ [%s] Audio channel full, dropping TTS audio", sessionID)
 				}
-				log.Printf("🗣️ [%s] STT Partial: %s", sessionID, payload.TranscriptPartial.Text)
 
-			case *pb.ChatResponse_TranscriptFinal:
-				// STT 최종 결과 → 텍스트 채널
+				// 레거시 호환: recvChan에도 오디오 데이터 전송
 				select {
-				case textChan <- "[FINAL] " + payload.TranscriptFinal.Text:
+				case recvChan <- audio.AudioData:
 				default:
 				}
-				log.Printf("✅ [%s] STT Final: %s", sessionID, payload.TranscriptFinal.Text)
 
-			case *pb.ChatResponse_TextResponse:
-				// LLM 번역 응답 → 텍스트 채널
-				select {
-				case textChan <- "[LLM] " + payload.TextResponse.Text:
-				default:
+				log.Printf("🔊 [%s] TTS Audio: lang=%s, format=%s, targets=%v, size=%d bytes",
+					sessionID, audio.TargetLanguage, audio.Format,
+					audio.TargetParticipantIds, len(audio.AudioData))
+
+			case *pb.ChatResponse_Error:
+				// 에러 응답
+				errResp := payload.Error
+				log.Printf("❌ [%s] Error from AI server: code=%s, msg=%s, details=%s",
+					sessionID, errResp.Code, errResp.Message, errResp.Details)
+
+			case *pb.ChatResponse_Status:
+				// 세션 상태 업데이트
+				status := payload.Status
+				log.Printf("📊 [%s] Session status: %s - %s", sessionID, status.Status, status.Message)
+				if status.BufferingStrategy != nil {
+					log.Printf("📊 [%s] Buffering: src=%s, strategy=%s",
+						sessionID, status.BufferingStrategy.SourceLanguage, status.BufferingStrategy.Strategy)
 				}
-				log.Printf("🤖 [%s] LLM: %s", sessionID, payload.TextResponse.Text)
 			}
 		}
 	}()
@@ -256,24 +373,45 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID string, conf
 	}()
 
 	return &ChatStream{
-		SendChan: sendChan,
-		RecvChan: recvChan,
-		TextChan: textChan,
-		ErrChan:  errChan,
-		Cancel:   cancel,
+		SendChan:       sendChan,
+		RecvChan:       recvChan,
+		TranscriptChan: transcriptChan,
+		AudioChan:      audioChan,
+		ErrChan:        errChan,
+		Cancel:         cancel,
 	}, nil
 }
 
-// SendSessionInit 세션 초기화 메시지 전송
-func (c *GrpcClient) SendSessionInit(stream grpc.ClientStreamingClient[pb.ChatRequest, pb.ChatResponse], sessionID string, sampleRate, channels, bitsPerSample uint32) error {
+// UpdateParticipantSettings 참가자 설정 업데이트 (타겟 언어 변경 등)
+func (c *GrpcClient) UpdateParticipantSettings(ctx context.Context, roomID, participantID, targetLanguage string, translationEnabled bool) error {
+	req := &pb.ParticipantSettingsRequest{
+		RoomId:             roomID,
+		ParticipantId:      participantID,
+		TargetLanguage:     targetLanguage,
+		TranslationEnabled: translationEnabled,
+	}
+
+	resp, err := c.client.UpdateParticipantSettings(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		log.Printf("⚠️ UpdateParticipantSettings failed: %s", resp.Message)
+	}
+
+	return nil
+}
+
+// SendSessionEnd 세션 종료 신호 전송
+func (c *GrpcClient) SendSessionEnd(stream grpc.ClientStreamingClient[pb.ChatRequest, pb.ChatResponse], sessionID, roomID, participantID, reason string) error {
 	req := &pb.ChatRequest{
-		SessionId: sessionID,
-		Payload: &pb.ChatRequest_SessionInit{
-			SessionInit: &pb.SessionInit{
-				SampleRate:    sampleRate,
-				Channels:      channels,
-				BitsPerSample: bitsPerSample,
-				Language:      "ko-KR",
+		SessionId:     sessionID,
+		RoomId:        roomID,
+		ParticipantId: participantID,
+		Payload: &pb.ChatRequest_SessionEnd{
+			SessionEnd: &pb.SessionEnd{
+				Reason: reason,
 			},
 		},
 	}

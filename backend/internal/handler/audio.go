@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -65,10 +64,16 @@ func (h *AudioHandler) HandleWebSocket(c *websocket.Conn) {
 	// 세션 초기화
 	sess := session.New(h.cfg.Audio.ChannelBufferSize)
 
-	// 언어 파라미터 추출 (Locals에서)
-	if lang, ok := c.Locals("lang").(string); ok && lang != "" {
-		sess.SetLanguage(lang)
-		log.Printf("🌐 [%s] Target language: %s", sess.ID, lang)
+	// 소스 언어 파라미터 추출 (발화자가 말하는 언어)
+	if sourceLang, ok := c.Locals("sourceLang").(string); ok && sourceLang != "" {
+		sess.SetSourceLanguage(sourceLang)
+		log.Printf("🌐 [%s] Source language (speaking): %s", sess.ID, sourceLang)
+	}
+
+	// 타겟 언어 파라미터 추출 (듣고 싶은 언어)
+	if targetLang, ok := c.Locals("targetLang").(string); ok && targetLang != "" {
+		sess.SetLanguage(targetLang)
+		log.Printf("🌐 [%s] Target language (listening): %s", sess.ID, targetLang)
 	}
 
 	// 발화자 식별 ID 추출 (Locals에서)
@@ -289,35 +294,60 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 
 	// 세션 설정 정보 구성
 	metadata := sess.GetMetadata()
+	participantID := sess.GetParticipantID()
+	sourceLang := sess.GetSourceLanguage() // 발화자가 말하는 언어
+	targetLang := sess.GetLanguage()       // 듣고 싶은 언어
+
+	log.Printf("🌐 [%s] Language config: source=%s, target=%s", sess.ID, sourceLang, targetLang)
+
+	// 발화자 설정 - 발화자가 말하는 언어 사용
+	speaker := &ai.SpeakerConfig{
+		ParticipantID:  participantID,
+		Nickname:       participantID, // TODO: 실제 닉네임 가져오기
+		SourceLanguage: sourceLang,    // 발화자가 말하는 언어
+	}
+
+	// 참가자 설정 - 듣는 사람의 타겟 언어 사용
+	// TODO: 실제 참가자 목록 가져오기 (현재는 자기 자신만)
+	participants := []ai.ParticipantConfig{
+		{
+			ParticipantID:      participantID,
+			Nickname:           participantID,
+			TargetLanguage:     targetLang, // 듣고 싶은 언어
+			TranslationEnabled: sourceLang != targetLang, // 소스와 타겟이 다르면 번역 활성화
+		},
+	}
+
 	var config *ai.SessionConfig
 	if metadata != nil {
 		config = &ai.SessionConfig{
-			SampleRate:    metadata.SampleRate,
-			Channels:      uint32(metadata.Channels),
-			BitsPerSample: uint32(metadata.BitsPerSample),
-			Language:      sess.GetLanguage(),
+			SampleRate:     metadata.SampleRate,
+			Channels:       uint32(metadata.Channels),
+			BitsPerSample:  uint32(metadata.BitsPerSample),
+			SourceLanguage: sourceLang, // 발화자가 말하는 언어
+			Participants:   participants,
+			Speaker:        speaker,
 		}
 	} else {
 		// 메타데이터가 없는 경우 기본값 사용
 		config = &ai.SessionConfig{
-			SampleRate:    16000,
-			Channels:      1,
-			BitsPerSample: 16,
-			Language:      sess.GetLanguage(),
+			SampleRate:     16000,
+			Channels:       1,
+			BitsPerSample:  16,
+			SourceLanguage: sourceLang, // 발화자가 말하는 언어
+			Participants:   participants,
+			Speaker:        speaker,
 		}
 	}
 
 	// 단일 gRPC 스트림 시작 (SessionConfig 전달)
-	chatStream, err := h.aiClient.StartChatStream(sess.Context(), sess.ID, config)
+	roomID := sess.ID // TODO: 실제 room ID 사용
+	chatStream, err := h.aiClient.StartChatStream(sess.Context(), sess.ID, roomID, config)
 	if err != nil {
 		log.Printf("❌ [%s] Failed to start AI stream: %v", sess.ID, err)
 		return
 	}
 	defer chatStream.Cancel()
-
-	// 마지막 STT 원본 텍스트 저장
-	var lastOriginalText string
-	var mu sync.Mutex
 
 	// 송신 고루틴: AudioPackets → gRPC
 	go func() {
@@ -349,103 +379,68 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 		case <-sess.Context().Done():
 			return
 
-		case audioData, ok := <-chatStream.RecvChan:
+		case transcript, ok := <-chatStream.TranscriptChan:
 			if !ok {
 				return
 			}
+			log.Printf("📝 [%s] AI Transcript received: %s (partial=%v, final=%v)",
+				sess.ID, transcript.OriginalText, transcript.IsPartial, transcript.IsFinal)
+
+			// Partial 결과는 무시 (또는 실시간 표시용으로 전송)
+			if transcript.IsPartial {
+				log.Printf("📝 [%s] Partial STT (ignored): %s", sess.ID, transcript.OriginalText)
+				continue
+			}
+
+			// 번역 결과 추출 (첫 번째 번역 사용)
+			var translatedText string
+			if len(transcript.Translations) > 0 {
+				translatedText = transcript.Translations[0].TranslatedText
+			}
+
+			// 원본과 번역이 같으면 번역 없음
+			if translatedText == transcript.OriginalText {
+				translatedText = ""
+			}
+
+			transcriptMsg := &session.TranscriptMessage{
+				Type:          "transcript",
+				ParticipantID: sess.GetParticipantID(),
+				Text:          transcript.OriginalText,
+				Original:      transcript.OriginalText,
+				Translated:    translatedText,
+				Language:      transcript.OriginalLanguage,
+				IsFinal:       transcript.IsFinal,
+			}
+
+			select {
+			case sess.TranscriptChan <- transcriptMsg:
+				if translatedText != "" {
+					log.Printf("📝 [%s] Transcript sent: original=%s, translated=%s",
+						sess.ID, transcript.OriginalText, translatedText)
+				} else {
+					log.Printf("📝 [%s] Transcript sent: %s", sess.ID, transcript.OriginalText)
+				}
+			default:
+				log.Printf("⚠️ [%s] Transcript buffer full, dropping message", sess.ID)
+			}
+
+		case audioMsg, ok := <-chatStream.AudioChan:
+			if !ok {
+				return
+			}
+			log.Printf("🔊 [%s] AI Audio received: lang=%s, speaker=%s, size=%d bytes",
+				sess.ID, audioMsg.TargetLanguage, audioMsg.SpeakerParticipantID, len(audioMsg.AudioData))
+
+			// Self-mute는 프론트엔드에서 처리 (useRemoteParticipantTranslation.ts)
+			// 백엔드는 모든 TTS 오디오를 전송
+
 			// AI 응답 오디오 → 에코 채널 (Non-blocking)
 			select {
-			case sess.EchoPackets <- audioData:
+			case sess.EchoPackets <- audioMsg.AudioData:
+				log.Printf("🔊 [%s] TTS audio sent to WebSocket", sess.ID)
 			default:
 				log.Printf("⚠️ [%s] Echo buffer full, dropping AI audio response", sess.ID)
-			}
-
-		case text, ok := <-chatStream.TextChan:
-			if !ok {
-				return
-			}
-			log.Printf("📝 [%s] AI Text received: %s", sess.ID, text)
-
-			// 텍스트 타입에 따라 처리
-			if strings.HasPrefix(text, "[FINAL] ") {
-				// STT 최종 결과 - 즉시 전송 (STT용) + LLM 대기
-				originalText := strings.TrimPrefix(text, "[FINAL] ")
-				mu.Lock()
-				lastOriginalText = originalText
-				mu.Unlock()
-
-				// STT 결과 즉시 전송 (번역 없이 원본만)
-				transcriptMsg := &session.TranscriptMessage{
-					Type:          "transcript",
-					ParticipantID: sess.GetParticipantID(),
-					Text:          originalText,
-					Original:      originalText,
-					Translated:    "", // 아직 번역 없음
-					Language:      sess.GetLanguage(),
-					IsFinal:       true,
-				}
-				select {
-				case sess.TranscriptChan <- transcriptMsg:
-					log.Printf("📝 [%s] STT sent: %s", sess.ID, originalText)
-				default:
-					log.Printf("⚠️ [%s] Transcript buffer full, dropping STT", sess.ID)
-				}
-
-			} else if strings.HasPrefix(text, "[LLM] ") {
-				// LLM 번역 결과 - 원본과 함께 전송
-				translatedText := strings.TrimPrefix(text, "[LLM] ")
-
-				mu.Lock()
-				originalText := lastOriginalText
-				mu.Unlock()
-
-				transcriptMsg := &session.TranscriptMessage{
-					Type:          "transcript",
-					ParticipantID: sess.GetParticipantID(),
-					Text:          translatedText,
-					Original:      originalText,
-					Translated:    translatedText,
-					Language:      sess.GetLanguage(),
-					IsFinal:       true,
-				}
-				select {
-				case sess.TranscriptChan <- transcriptMsg:
-					log.Printf("📝 [%s] Transcript sent (LLM): original=%s, translated=%s",
-						sess.ID, originalText, translatedText)
-				default:
-					log.Printf("⚠️ [%s] Transcript buffer full, dropping message", sess.ID)
-				}
-
-			} else if strings.HasPrefix(text, "[PARTIAL] ") {
-				// STT 중간 결과 - 무시
-				log.Printf("📝 [%s] Partial STT (ignored): %s", sess.ID, text)
-
-			} else {
-				// 알 수 없는 형식 - 그대로 전송
-				log.Printf("📝 [%s] Unknown text format: %s", sess.ID, text)
-
-				mu.Lock()
-				originalText := lastOriginalText
-				if originalText == "" {
-					originalText = text
-				}
-				mu.Unlock()
-
-				transcriptMsg := &session.TranscriptMessage{
-					Type:          "transcript",
-					ParticipantID: sess.GetParticipantID(),
-					Text:          text,
-					Original:      originalText,
-					Translated:    text,
-					Language:      sess.GetLanguage(),
-					IsFinal:       true,
-				}
-				select {
-				case sess.TranscriptChan <- transcriptMsg:
-					log.Printf("📝 [%s] Transcript sent (fallback): %s", sess.ID, text)
-				default:
-					log.Printf("⚠️ [%s] Transcript buffer full, dropping message", sess.ID)
-				}
 			}
 
 		case err, ok := <-chatStream.ErrChan:

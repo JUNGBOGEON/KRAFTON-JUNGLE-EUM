@@ -71,6 +71,8 @@ func (h *ChatHandler) GetOrCreateDMRoom(c *fiber.Ctx) error {
 	newRoom := model.Meeting{
 		WorkspaceID: &wsID,
 		HostID:      claims.UserID,
+		Title:       "DM",
+		Code:        generateMeetingCode(),
 		Type:        model.MeetingTypeDM.String(),
 		Code:        generateMeetingCode(),
 		Status:      "ACTIVE",

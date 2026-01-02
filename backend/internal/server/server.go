@@ -288,16 +288,31 @@ func (s *Server) SetupRoutes() {
 			return fiber.ErrUpgradeRequired
 		}
 
-		// 언어 파라미터 추출 (기본값: en)
-		lang := c.Query("lang", "en")
-		// 지원하는 언어만 허용
-		switch lang {
+		// 소스 언어 파라미터 추출 (발화자가 말하는 언어, 기본값: ko)
+		sourceLang := c.Query("sourceLang", "ko")
+		switch sourceLang {
 		case "ko", "en", "ja", "zh":
 			// 유효한 언어
 		default:
-			lang = "en"
+			sourceLang = "ko"
 		}
-		c.Locals("lang", lang)
+		c.Locals("sourceLang", sourceLang)
+
+		// 타겟 언어 파라미터 추출 (듣고 싶은 언어, 기본값: en)
+		targetLang := c.Query("targetLang", "en")
+		switch targetLang {
+		case "ko", "en", "ja", "zh":
+			// 유효한 언어
+		default:
+			targetLang = "en"
+		}
+		c.Locals("targetLang", targetLang)
+
+		// 기존 lang 파라미터도 지원 (하위 호환성)
+		if c.Query("lang") != "" && c.Query("sourceLang") == "" {
+			legacyLang := c.Query("lang", "en")
+			c.Locals("targetLang", legacyLang)
+		}
 
 		// 발화자 식별 ID 추출 (원격 참가자의 identity)
 		participantId := c.Query("participantId", "")

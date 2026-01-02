@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { apiClient, ChatRoom, Workspace } from "../../../lib/api";
+import { apiClient, ChatRoom } from "../../../lib/api";
 import { useVoiceParticipantsWebSocket } from "../../../hooks/useVoiceParticipantsWebSocket";
-import { usePermission } from "../../../hooks/usePermission";
 
 interface VoiceParticipant {
   identity: string;

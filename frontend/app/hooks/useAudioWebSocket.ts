@@ -42,7 +42,8 @@ interface UseAudioWebSocketConfig {
     sampleRate?: number;
     channels?: number;
     bitsPerSample?: number;
-    targetLanguage?: TargetLanguage;
+    sourceLanguage?: TargetLanguage;  // 발화자가 말하는 언어
+    targetLanguage?: TargetLanguage;  // 듣고 싶은 언어
     participantId?: string;
     onTranscript?: (data: TranscriptData) => void;
     onAudio?: (audioData: ArrayBuffer, sampleRate: number, participantId?: string) => void;
@@ -66,7 +67,8 @@ export function useAudioWebSocket({
     sampleRate = SAMPLE_RATE,
     channels = 1,
     bitsPerSample = 16,
-    targetLanguage = 'en',
+    sourceLanguage = 'ko',  // 발화자가 말하는 언어 (기본: 한국어)
+    targetLanguage = 'en',  // 듣고 싶은 언어 (기본: 영어)
     participantId,
     onTranscript,
     onAudio,
@@ -82,6 +84,7 @@ export function useAudioWebSocket({
     const isHandshakeCompleteRef = useRef(false);
     const isMountedRef = useRef(false);
     const enabledRef = useRef(enabled);
+    const sourceLanguageRef = useRef(sourceLanguage);
     const targetLanguageRef = useRef(targetLanguage);
     const participantIdRef = useRef(participantId);
 
@@ -97,6 +100,11 @@ export function useAudioWebSocket({
     useEffect(() => {
         enabledRef.current = enabled;
     }, [enabled]);
+
+    // sourceLanguage 값을 ref에 동기화
+    useEffect(() => {
+        sourceLanguageRef.current = sourceLanguage;
+    }, [sourceLanguage]);
 
     // targetLanguage 값을 ref에 동기화
     useEffect(() => {
@@ -126,11 +134,11 @@ export function useAudioWebSocket({
         }
 
         // 언어 및 participantId 파라미터 포함한 URL 생성
-        let wsUrl = `${WS_BASE_URL}?lang=${targetLanguageRef.current}`;
+        let wsUrl = `${WS_BASE_URL}?sourceLang=${sourceLanguageRef.current}&targetLang=${targetLanguageRef.current}`;
         if (participantIdRef.current) {
             wsUrl += `&participantId=${encodeURIComponent(participantIdRef.current)}`;
         }
-        console.log("[AudioWS] Connecting to:", wsUrl, "with language:", targetLanguageRef.current, "participantId:", participantIdRef.current);
+        console.log("[AudioWS] Connecting to:", wsUrl, "with sourceLang:", sourceLanguageRef.current, "targetLang:", targetLanguageRef.current, "participantId:", participantIdRef.current);
         updateStatus('connecting');
         isHandshakeCompleteRef.current = false;
 

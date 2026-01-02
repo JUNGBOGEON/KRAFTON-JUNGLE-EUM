@@ -203,7 +203,7 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white relative overflow-hidden">
+    <div className="min-h-screen bg-white relative overflow-y-auto">
 
       {/* Background Images */}
       <img

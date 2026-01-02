@@ -81,12 +81,14 @@ func (h *ChatWSHandler) getOrCreateRoom(roomID int64) *ChatRoom {
 
 // HandleWebSocket WebSocket 연결 처리
 func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
+
 	// 패닉 복구 - 서버 크래시 방지
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("채팅 WebSocket 패닉 복구: %v", r)
 		}
 	}()
+
 	// 쿼리 파라미터에서 정보 추출 (안전한 타입 변환)
 	roomIDInterface := c.Locals("roomId")
 	userIDInterface := c.Locals("userId")

@@ -19,14 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ConversationService_StreamChat_FullMethodName = "/conversation.ConversationService/StreamChat"
+	ConversationService_StreamChat_FullMethodName                = "/conversation.ConversationService/StreamChat"
+	ConversationService_UpdateParticipantSettings_FullMethodName = "/conversation.ConversationService/UpdateParticipantSettings"
 )
 
 // ConversationServiceClient is the client API for ConversationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// 실시간 번역 서비스
 type ConversationServiceClient interface {
+	// 양방향 스트리밍 RPC
+	// Go(Audio) → Python(AI) → Go(Audio/Text)
 	StreamChat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ChatRequest, ChatResponse], error)
+	// 참가자 설정 업데이트 (타겟 언어 변경 등)
+	UpdateParticipantSettings(ctx context.Context, in *ParticipantSettingsRequest, opts ...grpc.CallOption) (*ParticipantSettingsResponse, error)
 }
 
 type conversationServiceClient struct {
@@ -50,11 +57,27 @@ func (c *conversationServiceClient) StreamChat(ctx context.Context, opts ...grpc
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ConversationService_StreamChatClient = grpc.BidiStreamingClient[ChatRequest, ChatResponse]
 
+func (c *conversationServiceClient) UpdateParticipantSettings(ctx context.Context, in *ParticipantSettingsRequest, opts ...grpc.CallOption) (*ParticipantSettingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ParticipantSettingsResponse)
+	err := c.cc.Invoke(ctx, ConversationService_UpdateParticipantSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ConversationServiceServer is the server API for ConversationService service.
 // All implementations must embed UnimplementedConversationServiceServer
 // for forward compatibility.
+//
+// 실시간 번역 서비스
 type ConversationServiceServer interface {
+	// 양방향 스트리밍 RPC
+	// Go(Audio) → Python(AI) → Go(Audio/Text)
 	StreamChat(grpc.BidiStreamingServer[ChatRequest, ChatResponse]) error
+	// 참가자 설정 업데이트 (타겟 언어 변경 등)
+	UpdateParticipantSettings(context.Context, *ParticipantSettingsRequest) (*ParticipantSettingsResponse, error)
 	mustEmbedUnimplementedConversationServiceServer()
 }
 
@@ -67,6 +90,9 @@ type UnimplementedConversationServiceServer struct{}
 
 func (UnimplementedConversationServiceServer) StreamChat(grpc.BidiStreamingServer[ChatRequest, ChatResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamChat not implemented")
+}
+func (UnimplementedConversationServiceServer) UpdateParticipantSettings(context.Context, *ParticipantSettingsRequest) (*ParticipantSettingsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateParticipantSettings not implemented")
 }
 func (UnimplementedConversationServiceServer) mustEmbedUnimplementedConversationServiceServer() {}
 func (UnimplementedConversationServiceServer) testEmbeddedByValue()                             {}
@@ -96,13 +122,36 @@ func _ConversationService_StreamChat_Handler(srv interface{}, stream grpc.Server
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ConversationService_StreamChatServer = grpc.BidiStreamingServer[ChatRequest, ChatResponse]
 
+func _ConversationService_UpdateParticipantSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ParticipantSettingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).UpdateParticipantSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_UpdateParticipantSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).UpdateParticipantSettings(ctx, req.(*ParticipantSettingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ConversationService_ServiceDesc is the grpc.ServiceDesc for ConversationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ConversationService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "conversation.ConversationService",
 	HandlerType: (*ConversationServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "UpdateParticipantSettings",
+			Handler:    _ConversationService_UpdateParticipantSettings_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamChat",

@@ -39,7 +39,8 @@ function VideoCallContent({
     const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isTranslationOpen, setIsTranslationOpen] = useState(false);
-    const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>('en');
+    const [sourceLanguage, setSourceLanguage] = useState<TargetLanguage>('ko');  // 내가 말하는 언어
+    const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>('en');  // 듣고 싶은 언어
     const [unreadCount, setUnreadCount] = useState(0);
     const [voiceRecords, setVoiceRecords] = useState<VoiceRecord[]>([]);
     const [currentSpeaker, setCurrentSpeaker] = useState<{ name: string; profileImg?: string; isLocal?: boolean } | null>(null);
@@ -137,9 +138,9 @@ function VideoCallContent({
     } = useRemoteParticipantTranslation({
         enabled: isTranslationOpen,  // TTS 재생 여부 (번역 모드)
         sttEnabled: true,            // STT는 항상 활성화
-        targetLanguage,
+        sourceLanguage,              // 발화자가 말하는 언어
+        targetLanguage,              // 듣고 싶은 언어
         autoPlayTTS: true,
-        chunkIntervalMs: 1500,
         onTranscript: handleTranscript,
     });
 
@@ -204,7 +205,9 @@ function VideoCallContent({
                         isChatOpen={isChatOpen}
                         isWhiteboardOpen={isWhiteboardOpen}
                         isTranslationOpen={isTranslationOpen}
+                        sourceLanguage={sourceLanguage}
                         targetLanguage={targetLanguage}
+                        onSourceLanguageChange={setSourceLanguage}
                         onTargetLanguageChange={setTargetLanguage}
                         unreadCount={unreadCount}
                         onToggleChat={toggleChat}

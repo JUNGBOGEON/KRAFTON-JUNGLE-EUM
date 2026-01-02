@@ -25,7 +25,9 @@ interface CustomVideoConferenceProps {
     isChatOpen?: boolean;
     isWhiteboardOpen?: boolean;
     isTranslationOpen?: boolean;
-    targetLanguage?: TargetLanguage;
+    sourceLanguage?: TargetLanguage;  // 내가 말하는 언어
+    targetLanguage?: TargetLanguage;  // 듣고 싶은 언어
+    onSourceLanguageChange?: (lang: TargetLanguage) => void;
     onTargetLanguageChange?: (lang: TargetLanguage) => void;
     unreadCount?: number;
     onToggleChat?: () => void;
@@ -39,7 +41,9 @@ export default function CustomVideoConference({
     customRoomName,
     isChatOpen = false,
     isTranslationOpen = false,
-    targetLanguage = 'en',
+    sourceLanguage = 'ko',  // 기본값: 한국어
+    targetLanguage = 'en',  // 기본값: 영어
+    onSourceLanguageChange,
     onTargetLanguageChange,
     unreadCount = 0,
     onToggleChat,
@@ -149,7 +153,9 @@ export default function CustomVideoConference({
             <ControlBarComponent
                 isChatOpen={isChatOpen}
                 isTranslationOpen={isTranslationOpen}
+                sourceLanguage={sourceLanguage}
                 targetLanguage={targetLanguage}
+                onSourceLanguageChange={onSourceLanguageChange}
                 onTargetLanguageChange={onTargetLanguageChange}
                 unreadCount={unreadCount}
                 isMicEnabled={isMicrophoneEnabled}
@@ -304,7 +310,9 @@ function SpeakingIndicator({ participant }: { participant: Participant }) {
 function ControlBarComponent({
     isChatOpen,
     isTranslationOpen,
+    sourceLanguage,
     targetLanguage,
+    onSourceLanguageChange,
     onTargetLanguageChange,
     unreadCount,
     isMicEnabled,
@@ -320,7 +328,9 @@ function ControlBarComponent({
 }: {
     isChatOpen?: boolean;
     isTranslationOpen?: boolean;
+    sourceLanguage?: TargetLanguage;
     targetLanguage?: TargetLanguage;
+    onSourceLanguageChange?: (lang: TargetLanguage) => void;
     onTargetLanguageChange?: (lang: TargetLanguage) => void;
     unreadCount?: number;
     isMicEnabled?: boolean;
@@ -335,7 +345,8 @@ function ControlBarComponent({
     onLeave?: () => void;
 }) {
     const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-    const currentLang = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguage) || SUPPORTED_LANGUAGES[1];
+    const currentSourceLang = SUPPORTED_LANGUAGES.find(l => l.code === sourceLanguage) || SUPPORTED_LANGUAGES[0];
+    const currentTargetLang = SUPPORTED_LANGUAGES.find(l => l.code === targetLanguage) || SUPPORTED_LANGUAGES[1];
     return (
         <div className="flex-shrink-0 px-6 py-5 border-t border-black/5">
             <div className="flex items-center justify-center gap-2">
@@ -461,9 +472,9 @@ function ControlBarComponent({
                                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                                     : '!bg-transparent hover:bg-black/10 !text-black border-l border-black/10'
                             }`}
-                            title="번역 언어 선택"
+                            title="언어 설정"
                         >
-                            <span className="text-sm">{currentLang.flag}</span>
+                            <span className="text-xs">{currentSourceLang.flag}→{currentTargetLang.flag}</span>
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
@@ -472,13 +483,40 @@ function ControlBarComponent({
 
                     {/* 언어 선택 드롭다운 */}
                     {showLanguageMenu && (
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg border border-black/10 py-1 min-w-[140px] z-50">
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg border border-black/10 py-1 min-w-[200px] z-50">
+                            {/* 음성 인식 언어 (상대방이 말하는 언어) */}
                             <div className="px-3 py-1.5 text-[10px] text-black/40 uppercase tracking-wide">
-                                번역 언어
+                                🎤 음성 인식 (상대방)
                             </div>
                             {SUPPORTED_LANGUAGES.map((lang) => (
                                 <button
-                                    key={lang.code}
+                                    key={`source-${lang.code}`}
+                                    onClick={() => {
+                                        onSourceLanguageChange?.(lang.code);
+                                    }}
+                                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-black/5 transition-colors ${
+                                        sourceLanguage === lang.code ? 'bg-green-50 text-green-600' : 'text-black'
+                                    }`}
+                                >
+                                    <span>{lang.flag}</span>
+                                    <span>{lang.name}</span>
+                                    {sourceLanguage === lang.code && (
+                                        <svg className="w-4 h-4 ml-auto text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                        </svg>
+                                    )}
+                                </button>
+                            ))}
+
+                            <div className="border-t border-black/10 my-1" />
+
+                            {/* 번역 출력 언어 (내가 듣고 싶은 언어) */}
+                            <div className="px-3 py-1.5 text-[10px] text-black/40 uppercase tracking-wide">
+                                🔊 번역 출력 (나)
+                            </div>
+                            {SUPPORTED_LANGUAGES.map((lang) => (
+                                <button
+                                    key={`target-${lang.code}`}
                                     onClick={() => {
                                         onTargetLanguageChange?.(lang.code);
                                         setShowLanguageMenu(false);
@@ -490,7 +528,7 @@ function ControlBarComponent({
                                     <span>{lang.flag}</span>
                                     <span>{lang.name}</span>
                                     {targetLanguage === lang.code && (
-                                        <svg className="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                                         </svg>
                                     )}

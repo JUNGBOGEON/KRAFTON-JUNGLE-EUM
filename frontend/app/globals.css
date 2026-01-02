@@ -118,7 +118,7 @@
 html,
 body {
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
   overscroll-behavior: none;
 }
 
