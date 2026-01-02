@@ -125,7 +125,7 @@ func ConnectDB() (*gorm.DB, error) {
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS default_status varchar(20) DEFAULT 'ONLINE';
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_text varchar(100);
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_emoji varchar(10);
-	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_expires_at timestamptz;`
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_expires_at timestamptz;
 	CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
 		id bigserial PRIMARY KEY,
 		meeting_id bigint NOT NULL,
