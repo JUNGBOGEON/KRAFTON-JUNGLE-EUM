@@ -1,3 +1,4 @@
+import { getStroke } from 'perfect-freehand';
 import { CURSOR_COLORS } from './constants';
 
 /**
@@ -152,4 +153,46 @@ function getSqSegDist(p: Point, v: Point, w: Point): number {
     dy = p.y - y;
 
     return dx * dx + dy * dy;
+}
+
+/**
+ * Generate stroke polygon points using perfect-freehand
+ * @param points Array of input points {x, y}
+ * @param options Stroke options (size, thinning, etc.)
+ * @returns Array of polygon points [x, y] flattened or as point objects
+ */
+export function getStrokePoints(points: Point[], options: { size: number; thinning?: number; smoothing?: number; streamline?: number }): number[] {
+    const inputPoints = points.map(p => [p.x, p.y]);
+
+    try {
+        const stroke = getStroke(inputPoints, {
+            size: options.size,
+            thinning: options.thinning ?? 0.5,
+            smoothing: options.smoothing ?? 0.5,
+            streamline: options.streamline ?? 0.5,
+            simulatePressure: false, // Fix "Sudden Filling/Blobbing" by disabling pressure simulation
+            last: true,
+            start: {
+                taper: 0,
+                easing: (t) => t,
+                cap: true
+            },
+            end: {
+                taper: 0,
+                easing: (t) => t,
+                cap: true
+            }
+        });
+
+        // Flatten the array for PIXI: [x1, y1, x2, y2, ...]
+        const flattened: number[] = [];
+        stroke.forEach(p => {
+            flattened.push(p[0], p[1]);
+        });
+
+        return flattened;
+    } catch (e) {
+        console.warn("Failed to generate stroke", e);
+        return [];
+    }
 }

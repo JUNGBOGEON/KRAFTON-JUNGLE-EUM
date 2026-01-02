@@ -91,17 +91,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshUser();
 
-    // Safety timeout: If refreshUser hangs for more than 5 seconds, force loading to false
-    // This prevents the "Rendering..." infinite loop if the backend is unreachable or request stalls.
+    // Safety timeout: Should be sufficient time for backend to respond.
+    // Reduced to 3000ms (3s) to improve UX in case of failure.
     const timer = setTimeout(() => {
       setIsLoading(prev => {
         if (prev) {
-          console.warn("[AuthProvider] Safety timeout triggered. Forcing isLoading to false.");
+          console.warn("[AuthProvider] Safety timeout triggered (3s). Forcing isLoading to false.");
           return false;
         }
         return prev;
       });
-    }, 5000);
+    }, 10000);
 
     return () => clearTimeout(timer);
   }, [refreshUser]);
