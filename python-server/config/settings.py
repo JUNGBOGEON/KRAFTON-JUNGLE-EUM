@@ -33,26 +33,30 @@ class Config:
     STT_BACKEND = os.getenv("STT_BACKEND", "multi")
 
     # Multi-Model STT Configuration (Language-Specific Models)
+    # NOTE: faster-whisper는 CTranslate2 형식만 지원
+    # HuggingFace 모델은 호환되지 않음 - OpenAI 모델명 또는 Systran 변환 모델 사용
     MULTI_MODEL_STT = {
+        # 모든 언어에 large-v3-turbo 사용 (4개 언어 모두 우수한 성능)
+        # 언어별 최적화가 필요하면 Systran/faster-whisper-* 모델 사용
         "en": {
-            "type": "nemo",
-            "model": "nvidia/canary-1b",
-            "description": "NVIDIA Canary - Multilingual (English focused)",
+            "type": "whisper",
+            "model": "large-v3-turbo",  # OpenAI 다국어 모델
+            "description": "OpenAI Whisper large-v3-turbo (English)",
         },
         "ko": {
             "type": "whisper",
-            "model": "SungBeom/whisper-small-ko",
-            "description": "Korean fine-tuned Whisper",
+            "model": "large-v3-turbo",  # 한국어도 우수한 성능
+            "description": "OpenAI Whisper large-v3-turbo (Korean)",
         },
         "ja": {
             "type": "whisper",
-            "model": "kotoba-tech/kotoba-whisper-v2.0",
-            "description": "Japanese fine-tuned Whisper (Kotoba)",
+            "model": "large-v3-turbo",  # 일본어도 우수한 성능
+            "description": "OpenAI Whisper large-v3-turbo (Japanese)",
         },
         "zh": {
             "type": "whisper",
-            "model": "BELLE-2/Belle-whisper-large-v3-zh",
-            "description": "Chinese fine-tuned Whisper (BELLE)",
+            "model": "large-v3-turbo",  # 중국어도 우수한 성능
+            "description": "OpenAI Whisper large-v3-turbo (Chinese)",
         },
     }
 

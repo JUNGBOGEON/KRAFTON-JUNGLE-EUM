@@ -137,36 +137,52 @@ class ModelManager(STTMixin, TranslationMixin, TTSMixin):
         self._warmup()
 
     def _load_multi_model_stt(self):
-        """Load language-specific STT models"""
+        """Load language-specific STT models (with deduplication)"""
         print("[1/4] Loading Multi-Model STT (Language-Specific)...")
         print(f"      Device: {Config.WHISPER_DEVICE}, Compute: {Config.WHISPER_COMPUTE_TYPE}")
         print()
+
+        # Track loaded models to avoid duplicate loading
+        loaded_whisper_models = {}  # model_name -> WhisperModel instance
+        loaded_nemo_models = {}     # model_name -> NeMo model instance
 
         for lang, model_config in Config.MULTI_MODEL_STT.items():
             model_type = model_config["type"]
             model_name = model_config["model"]
             description = model_config["description"]
 
-            print(f"      [{lang.upper()}] Loading {description}...")
+            print(f"      [{lang.upper()}] {description}")
             print(f"           Model: {model_name}")
 
             try:
                 if model_type == "whisper" and FASTER_WHISPER_AVAILABLE:
-                    self.whisper_models[lang] = WhisperModel(
-                        model_name,
-                        device=Config.WHISPER_DEVICE,
-                        compute_type=Config.WHISPER_COMPUTE_TYPE,
-                    )
-                    print(f"           ✓ Loaded (faster-whisper)")
+                    # Check if model already loaded
+                    if model_name in loaded_whisper_models:
+                        self.whisper_models[lang] = loaded_whisper_models[model_name]
+                        print(f"           ✓ Reusing already loaded model")
+                    else:
+                        model = WhisperModel(
+                            model_name,
+                            device=Config.WHISPER_DEVICE,
+                            compute_type=Config.WHISPER_COMPUTE_TYPE,
+                        )
+                        loaded_whisper_models[model_name] = model
+                        self.whisper_models[lang] = model
+                        print(f"           ✓ Loaded (faster-whisper)")
 
                 elif model_type == "nemo" and NEMO_AVAILABLE:
-                    self.nemo_models[lang] = nemo_asr.models.ASRModel.from_pretrained(
-                        model_name
-                    )
-                    if Config.WHISPER_DEVICE == "cuda":
-                        self.nemo_models[lang] = self.nemo_models[lang].cuda()
-                    self.nemo_models[lang].eval()
-                    print(f"           ✓ Loaded (NeMo)")
+                    # Check if model already loaded
+                    if model_name in loaded_nemo_models:
+                        self.nemo_models[lang] = loaded_nemo_models[model_name]
+                        print(f"           ✓ Reusing already loaded model")
+                    else:
+                        model = nemo_asr.models.ASRModel.from_pretrained(model_name)
+                        if Config.WHISPER_DEVICE == "cuda":
+                            model = model.cuda()
+                        model.eval()
+                        loaded_nemo_models[model_name] = model
+                        self.nemo_models[lang] = model
+                        print(f"           ✓ Loaded (NeMo)")
 
                 else:
                     print(f"           ⚠ Skipped (framework not available)")
@@ -174,20 +190,29 @@ class ModelManager(STTMixin, TranslationMixin, TTSMixin):
             except Exception as e:
                 print(f"           ✗ Failed to load: {e}")
 
-        # Load fallback model
+        # Load fallback model (also check for deduplication)
+        fallback_name = Config.FALLBACK_MODEL["model"]
         print(f"\n      [FALLBACK] Loading {Config.FALLBACK_MODEL['description']}...")
         try:
-            self.whisper_models["fallback"] = WhisperModel(
-                Config.FALLBACK_MODEL["model"],
-                device=Config.WHISPER_DEVICE,
-                compute_type=Config.WHISPER_COMPUTE_TYPE,
-            )
-            print(f"           ✓ Loaded")
+            if fallback_name in loaded_whisper_models:
+                self.whisper_models["fallback"] = loaded_whisper_models[fallback_name]
+                print(f"           ✓ Reusing already loaded model")
+            else:
+                self.whisper_models["fallback"] = WhisperModel(
+                    fallback_name,
+                    device=Config.WHISPER_DEVICE,
+                    compute_type=Config.WHISPER_COMPUTE_TYPE,
+                )
+                print(f"           ✓ Loaded")
         except Exception as e:
             print(f"           ✗ Failed: {e}")
 
         print()
-        print(f"      Summary: {len(self.whisper_models)} Whisper, {len(self.nemo_models)} NeMo models loaded")
+        unique_whisper = len(loaded_whisper_models)
+        unique_nemo = len(loaded_nemo_models)
+        total_mappings = len(self.whisper_models) + len(self.nemo_models)
+        print(f"      Summary: {unique_whisper} unique Whisper, {unique_nemo} unique NeMo models")
+        print(f"               {total_mappings} language mappings created")
 
     def _load_qwen_model(self):
         """Load Qwen3 translation model"""
@@ -241,11 +266,18 @@ class ModelManager(STTMixin, TranslationMixin, TTSMixin):
         warmup_start = time.time()
         dummy_audio = np.zeros(16000, dtype=np.float32)
 
-        # 1. Multi-Model warmup
+        # 1. Multi-Model warmup (deduplicated - only warmup unique models)
         if Config.STT_BACKEND == "multi":
             print("[Warmup] Multi-Model STT...")
 
+            # Warmup unique Whisper models only
+            warmed_whisper = set()
             for lang, model in self.whisper_models.items():
+                model_id = id(model)  # Use object id to detect shared instances
+                if model_id in warmed_whisper:
+                    print(f"         [{lang.upper()}] Skipping (already warmed up)")
+                    continue
+
                 try:
                     print(f"         [{lang.upper()}] Warming up Whisper...")
                     segments, info = model.transcribe(
@@ -255,11 +287,19 @@ class ModelManager(STTMixin, TranslationMixin, TTSMixin):
                         vad_filter=False,
                     )
                     list(segments)
+                    warmed_whisper.add(model_id)
                     print(f"         [{lang.upper()}] ✓ Whisper warmup complete")
                 except Exception as e:
                     print(f"         [{lang.upper()}] ⚠ Whisper warmup failed: {e}")
 
+            # Warmup unique NeMo models only
+            warmed_nemo = set()
             for lang, model in self.nemo_models.items():
+                model_id = id(model)
+                if model_id in warmed_nemo:
+                    print(f"         [{lang.upper()}] Skipping (already warmed up)")
+                    continue
+
                 try:
                     print(f"         [{lang.upper()}] Warming up NeMo...")
                     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -268,6 +308,7 @@ class ModelManager(STTMixin, TranslationMixin, TTSMixin):
                         sf.write(temp_path, audio_int16, Config.SAMPLE_RATE)
                     model.transcribe([temp_path])
                     os.unlink(temp_path)
+                    warmed_nemo.add(model_id)
                     print(f"         [{lang.upper()}] ✓ NeMo warmup complete")
                 except Exception as e:
                     print(f"         [{lang.upper()}] ⚠ NeMo warmup failed: {e}")
