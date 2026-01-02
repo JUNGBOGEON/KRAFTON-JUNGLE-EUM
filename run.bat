@@ -1,5 +1,4 @@
 @echo off
-echo Hello World!
 echo Starting LiveKit Server...
 docker-compose up -d
 
@@ -10,7 +9,6 @@ cd ..
 
 echo Starting Frontend...
 cd frontend
-echo Starting Frontend (Dev)...
 start /b npm run dev
 cd ..
 

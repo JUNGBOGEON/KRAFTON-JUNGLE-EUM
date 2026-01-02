@@ -20,6 +20,8 @@ interface WhiteboardToolbarProps {
     onUndo: () => void;
     onRedo: () => void;
     onClear: () => void;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
 }
 
 function WhiteboardToolbarComponent({
@@ -38,6 +40,8 @@ function WhiteboardToolbarComponent({
     onUndo,
     onRedo,
     onClear,
+    onMouseEnter,
+    onMouseLeave,
 }: WhiteboardToolbarProps) {
     const [isToolbarOpen, setIsToolbarOpen] = useState(false);
     const [showToolSettings, setShowToolSettings] = useState(false);
@@ -58,6 +62,8 @@ function WhiteboardToolbarComponent({
 
     return (
         <div
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
             className={`absolute bottom-0 left-1/2 -translate-x-1/2 flex flex-col items-center z-50 transition-all duration-500 ease-in-out cursor-none [&_*]:cursor-none ${isToolbarOpen ? 'translate-y-[-20px]' : 'translate-y-[calc(100%-32px)]'
                 }`}
         >
@@ -141,8 +147,8 @@ function WhiteboardToolbarComponent({
                                             key={c}
                                             onClick={() => onPenColorChange(c)}
                                             className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${penColor === c
-                                                    ? 'ring-2 ring-offset-2 ring-stone-900 border-transparent'
-                                                    : 'border-stone-200'
+                                                ? 'ring-2 ring-offset-2 ring-stone-900 border-transparent'
+                                                : 'border-stone-200'
                                                 }`}
                                             style={{ backgroundColor: c }}
                                             title={c}
@@ -159,11 +165,8 @@ function WhiteboardToolbarComponent({
                                         <input
                                             type="text"
                                             value={penColor.replace('#', '')}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
-                                                onPenColorChange(`#${val}`);
-                                            }}
-                                            className="w-full bg-transparent border-none text-sm font-bold text-stone-900 focus:ring-0 uppercase p-0"
+                                            readOnly // Disable manual input
+                                            className="w-full bg-transparent border-none text-sm font-bold text-stone-900 focus:ring-0 uppercase p-0 cursor-default"
                                             placeholder="000000"
                                         />
                                     </div>
@@ -198,8 +201,8 @@ function WhiteboardToolbarComponent({
                         onClick={onUndo}
                         disabled={!canUndo}
                         className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${!canUndo
-                                ? 'opacity-[0.1] cursor-not-allowed'
-                                : 'hover:bg-stone-50 text-stone-600 hover:text-stone-900 hover:scale-110'
+                            ? 'text-stone-300 cursor-not-allowed'
+                            : 'hover:bg-stone-50 text-stone-600 hover:text-stone-900 hover:scale-110'
                             }`}
                         title="Undo (Ctrl+Z)"
                     >
@@ -218,8 +221,8 @@ function WhiteboardToolbarComponent({
                         onClick={onRedo}
                         disabled={!canRedo}
                         className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${!canRedo
-                                ? 'opacity-[0.1] cursor-not-allowed'
-                                : 'hover:bg-stone-50 text-stone-600 hover:text-stone-900 hover:scale-110'
+                            ? 'text-stone-300 cursor-not-allowed'
+                            : 'hover:bg-stone-50 text-stone-600 hover:text-stone-900 hover:scale-110'
                             }`}
                         title="Redo (Ctrl+Y)"
                     >
@@ -239,8 +242,8 @@ function WhiteboardToolbarComponent({
                     <button
                         onClick={() => handleToolClick('hand')}
                         className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${activeTool === 'hand'
-                                ? 'bg-black text-white shadow-xl scale-110'
-                                : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
+                            ? 'bg-black text-white shadow-xl scale-110'
+                            : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
                             }`}
                         title="Pan"
                     >
@@ -258,8 +261,8 @@ function WhiteboardToolbarComponent({
                     <button
                         onClick={() => handleToolClick('pen')}
                         className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${activeTool === 'pen'
-                                ? 'bg-black text-white shadow-xl scale-110'
-                                : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
+                            ? 'bg-black text-white shadow-xl scale-110'
+                            : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
                             }`}
                         title="Pen"
                     >
@@ -283,8 +286,8 @@ function WhiteboardToolbarComponent({
                     <button
                         onClick={() => handleToolClick('eraser')}
                         className={`w-12 h-12 flex items-center justify-center rounded-full transition-all ${activeTool === 'eraser'
-                                ? 'bg-black text-white shadow-xl scale-110'
-                                : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
+                            ? 'bg-black text-white shadow-xl scale-110'
+                            : 'hover:bg-stone-50 text-stone-500 hover:text-stone-900 hover:scale-110'
                             }`}
                         title="Eraser"
                     >

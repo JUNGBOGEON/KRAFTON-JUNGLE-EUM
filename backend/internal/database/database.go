@@ -101,6 +101,7 @@ func ConnectDB() (*gorm.DB, error) {
 		&model.WorkspaceFile{},
 		&model.Notification{},
 		&model.WhiteboardStroke{},
+		&model.WhiteboardSnapshot{},
 	); err != nil {
 		log.Printf("⚠️ AutoMigrate warning: %v", err)
 	}
@@ -125,6 +126,15 @@ func ConnectDB() (*gorm.DB, error) {
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_text varchar(100);
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_emoji varchar(10);
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status_expires_at timestamptz;`
+	CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
+		id bigserial PRIMARY KEY,
+		meeting_id bigint NOT NULL,
+		data jsonb NOT NULL,
+		start_id bigint,
+		end_id bigint,
+		created_at timestamptz DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS idx_whiteboard_snapshots_meeting ON whiteboard_snapshots (meeting_id);`
 
 	if err := db.Exec(sql).Error; err != nil {
 		log.Printf("⚠️ Manual Table Creation Warning: %v", err)

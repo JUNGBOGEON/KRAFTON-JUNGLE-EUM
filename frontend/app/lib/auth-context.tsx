@@ -60,8 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isLoginInProgress = useRef(false);
 
   const refreshUser = useCallback(async () => {
+    console.log("[AuthProvider] refreshUser calling getMe...");
     try {
       const userData = await apiClient.getMe();
+      console.log("[AuthProvider] getMe success:", userData);
       setUser({
         id: userData.id,
         email: userData.email,
@@ -72,15 +74,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         custom_status_text: userData.custom_status_text,
         custom_status_emoji: userData.custom_status_emoji,
       });
-    } catch {
+    } catch (e) {
+      console.error("[AuthProvider] getMe failed (401 expected if not logged in):", e);
       setUser(null);
     } finally {
+      console.log("[AuthProvider] refreshUser finally. Setting isLoading false.");
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     refreshUser();
+
+    // Safety timeout: If refreshUser hangs for more than 5 seconds, force loading to false
+    // This prevents the "Rendering..." infinite loop if the backend is unreachable or request stalls.
+    const timer = setTimeout(() => {
+      setIsLoading(prev => {
+        if (prev) {
+          console.warn("[AuthProvider] Safety timeout triggered. Forcing isLoading to false.");
+          return false;
+        }
+        return prev;
+      });
+    }, 5000);
+
+    return () => clearTimeout(timer);
   }, [refreshUser]);
 
   const loginWithGoogle = async (idToken: string) => {

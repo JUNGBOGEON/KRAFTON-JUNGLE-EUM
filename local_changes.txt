@@ -1,3 +1,0 @@
-frontend/app/workspace/[id]/page.tsx
-frontend/package-lock.json
-frontend/package.json

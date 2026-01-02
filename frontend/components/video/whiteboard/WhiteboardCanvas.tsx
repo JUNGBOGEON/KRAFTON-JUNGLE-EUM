@@ -8,7 +8,7 @@ import { apiClient } from '@/app/lib/api';
 
 import { DrawEvent, ClearEvent, RefetchEvent, CursorEvent, WhiteboardTool } from './types';
 import { ZOOM_SETTINGS, GRID_SETTINGS, TOOL_SETTINGS } from './constants';
-import { hexToNumber, generatePenCursor, generateEraserCursor } from './utils';
+import { hexToNumber, generatePenCursor, generateEraserCursor, simplifyPoints, Point } from './utils';
 import { useWhiteboardCursors } from './hooks/useWhiteboardCursors';
 import { ZoomControls } from './components/ZoomControls';
 import { RemoteCursors, CursorVisual } from './components/RemoteCursors'; // Import CursorVisual
@@ -56,8 +56,7 @@ export default function WhiteboardCanvas() {
     const [isDrawing, setIsDrawing] = useState(false);
     const [triggerLoad, setTriggerLoad] = useState(0);
     const [isReady, setIsReady] = useState(false);
-
-    // LiveKit
+    const [isHoveringToolbar, setIsHoveringToolbar] = useState(false); // Track toolbar hover
     const room = useRoomContext();
     const participants = useParticipants();
 
@@ -157,6 +156,11 @@ export default function WhiteboardCanvas() {
 
         const onPointerDown = (e: PointerEvent) => {
             if (!canvasElement) return;
+
+            // Fix: Blur any active inputs (like color picker) when touching canvas
+            if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+            }
 
             setIsInteracting(true);
             canvasElement.setPointerCapture(e.pointerId);
@@ -313,7 +317,41 @@ export default function WhiteboardCanvas() {
 
             if (currentStroke.length > 0) {
                 try {
-                    const data = await apiClient.handleWhiteboardAction(room.name, { stroke: currentStroke });
+                    // **CRITICAL**: Apply Douglas-Peucker Simplification
+                    // This reduces the number of points sent to the server, optimizing network and DB storage.
+                    const originalEvents = currentStroke;
+                    let eventsToSend = originalEvents;
+
+                    if (originalEvents.length > 2) {
+                        const points: Point[] = [
+                            { x: originalEvents[0].prevX, y: originalEvents[0].prevY },
+                            ...originalEvents.map(e => ({ x: e.x, y: e.y }))
+                        ];
+                        const tolerance = 1.0;
+                        const simplifiedPoints = simplifyPoints(points, tolerance);
+
+                        if (simplifiedPoints.length >= 2) {
+                            const newEvents: DrawEvent[] = [];
+                            const color = originalEvents[0].color;
+                            const width = originalEvents[0].width;
+
+                            for (let i = 1; i < simplifiedPoints.length; i++) {
+                                newEvents.push({
+                                    type: 'draw',
+                                    x: simplifiedPoints[i].x,
+                                    y: simplifiedPoints[i].y,
+                                    prevX: simplifiedPoints[i - 1].x,
+                                    prevY: simplifiedPoints[i - 1].y,
+                                    color,
+                                    width
+                                });
+                            }
+                            eventsToSend = newEvents;
+                            console.log(`[Whiteboard] Simplified: ${originalEvents.length} -> ${eventsToSend.length}`);
+                        }
+                    }
+
+                    const data = await apiClient.handleWhiteboardAction(room.name, { stroke: eventsToSend });
                     if (data.success) {
                         setCanUndo(data.canUndo);
                         setCanRedo(data.canRedo);
@@ -360,6 +398,7 @@ export default function WhiteboardCanvas() {
                 canvasElement.addEventListener('pointerdown', onPointerDown);
                 canvasElement.addEventListener('pointermove', onPointerMove);
                 canvasElement.addEventListener('pointerup', onPointerUp);
+                canvasElement.addEventListener('pointerleave', onPointerUp); // Safety: Stop drawing if mouse leaves
                 canvasElement.addEventListener('wheel', onWheel, { passive: false });
 
                 setIsReady(true);
@@ -381,6 +420,7 @@ export default function WhiteboardCanvas() {
                     canvas.removeEventListener('pointerdown', onPointerDown);
                     canvas.removeEventListener('pointermove', onPointerMove);
                     canvas.removeEventListener('pointerup', onPointerUp);
+                    canvas.removeEventListener('pointerleave', onPointerUp);
                     canvas.removeEventListener('wheel', onWheel);
                 }
                 appRef.current.destroy(true, { children: true, texture: true });
@@ -692,8 +732,12 @@ export default function WhiteboardCanvas() {
 
     return (
         <div
-            className="relative w-full h-full bg-[#f9f9f9] touch-none overflow-hidden select-none outline-none"
-            style={{ cursor: getCursor() }}
+            className="relative w-full h-full bg-[#f9f9f9] touch-none overflow-hidden select-none outline-none" // select-none added
+            style={{
+                cursor: getCursor(),
+                userSelect: 'none', // Force disable selection
+                WebkitUserSelect: 'none',
+            }}
             onContextMenu={(e) => e.preventDefault()}
             onPointerMove={handleGlobalPointerMove} // Track mouse globally in this container
         >
@@ -735,6 +779,8 @@ export default function WhiteboardCanvas() {
                 onUndo={performUndo}
                 onRedo={performRedo}
                 onClear={clearBoard}
+                onMouseEnter={() => setIsHoveringToolbar(true)}
+                onMouseLeave={() => setIsHoveringToolbar(false)}
             />
 
             {/* Cursors */}
@@ -762,6 +808,7 @@ export default function WhiteboardCanvas() {
                         penColor={activeTool === 'pen' ? penColor : undefined}
                         isDrawing={isDrawing}
                         isLocal={true}
+                        showArrow={isHoveringToolbar} // Show arrow ONLY if hovering toolbar (since activeTool is always pen/eraser/hand)
                     />
                 )}
             </div>
