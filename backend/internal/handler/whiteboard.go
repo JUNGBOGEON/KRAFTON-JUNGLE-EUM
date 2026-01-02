@@ -33,7 +33,6 @@ func (h *WhiteboardHandler) GetWhiteboard(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Room name is required"})
 	}
 
-	// Get authenticated user ID for lazy creation if needed
 	userID := int64(0)
 	if val := c.Locals("userID"); val != nil {
 		userID = val.(int64)
@@ -44,24 +43,34 @@ func (h *WhiteboardHandler) GetWhiteboard(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Meeting not found"})
 	}
 
-	// Fetch all non-deleted strokes for this meeting
-	var strokes []model.WhiteboardStroke
-	// Optimization: Only select ID and StrokeData to reduce payload if necessary,
-	// but Frontend expects full stroke objects.
-	// Since StrokeData is JSON stored as string/bytes, we just fetch it.
-	err = h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, false).
-		Order("id ASC").
-		Find(&strokes).Error
-
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database error"})
+	// 1. Fetch Snapshots (Chunked data)
+	var snapshots []model.WhiteboardSnapshot
+	if err := h.db.Where("meeting_id = ?", meetingID).Order("id ASC").Find(&snapshots).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch snapshots"})
 	}
 
-	// Convert strokes to history format expected by frontend (array of objects)
-	// Currently frontend expects: Data: "[{...}, {...}]" (JSON string of array)
-	// But `GetWhiteboard` returned `history` as `[]any`.
-	// Let's decode StrokeData and append to history.
-	history := make([]any, 0, len(strokes))
+	// 2. Fetch Active Strokes (Non-deleted, Recent)
+	var strokes []model.WhiteboardStroke
+	if err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, false).
+		Order("id ASC").
+		Find(&strokes).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch strokes"})
+	}
+
+	// 3. Merge data
+	history := make([]any, 0)
+
+	// Add snapshots first
+	for _, snap := range snapshots {
+		var chunk []any
+		if err := json.Unmarshal([]byte(snap.Data), &chunk); err == nil {
+			history = append(history, chunk...)
+		} else {
+			log.Printf("[Whiteboard] Failed to parse snapshot %d: %v", snap.ID, err)
+		}
+	}
+
+	// Add recent strokes
 	for _, s := range strokes {
 		var strokeData any
 		if err := json.Unmarshal([]byte(s.StrokeData), &strokeData); err == nil {
@@ -69,21 +78,95 @@ func (h *WhiteboardHandler) GetWhiteboard(c *fiber.Ctx) error {
 		}
 	}
 
-	// Calculate canRedo
+	// Undo/Redo is only for available strokes in 'whiteboard_strokes'
+	// Users cannot undo archived snapshot content easily.
 	var deletedCount int64
 	h.db.Model(&model.WhiteboardStroke{}).Where("meeting_id = ? AND is_deleted = ?", meetingID, true).Count(&deletedCount)
 
 	return c.JSON(fiber.Map{
 		"success": true,
 		"history": history,
-		"canUndo": len(strokes) > 0, // Simple check
+		"canUndo": len(strokes) > 0,
 		"canRedo": deletedCount > 0,
 	})
 }
 
+// Helper to chunk strokes into a snapshot
+func (h *WhiteboardHandler) snapshotStrokes(meetingID int64) {
+	const triggerCount = 1100
+	const keepRecentCount = 100
+
+	var count int64
+	// Count only active strokes
+	h.db.Model(&model.WhiteboardStroke{}).Where("meeting_id = ? AND is_deleted = ?", meetingID, false).Count(&count)
+
+	if count >= triggerCount {
+		log.Printf("[Snapshot] Triggered for meeting %d. Count: %d", meetingID, count)
+
+		// 1. Select oldest (Total - 100) strokes
+		limit := int(count) - keepRecentCount
+		if limit <= 0 {
+			return
+		}
+
+		var strokes []model.WhiteboardStroke
+		// Order by ID ASC (oldest first)
+		if err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, false).
+			Order("id ASC").
+			Limit(limit).
+			Find(&strokes).Error; err != nil {
+			log.Printf("[Snapshot] Failed to select strokes: %v", err)
+			return
+		}
+
+		if len(strokes) == 0 {
+			return
+		}
+
+		// 2. Serialize stroke data
+		var aggregatedData []json.RawMessage
+		for _, s := range strokes {
+			aggregatedData = append(aggregatedData, json.RawMessage(s.StrokeData))
+		}
+
+		jsonData, err := json.Marshal(aggregatedData)
+		if err != nil {
+			log.Printf("[Snapshot] Failed to marshal aggregated data: %v", err)
+			return
+		}
+
+		// 3. Create Snapshot
+		snapshot := model.WhiteboardSnapshot{
+			MeetingID: meetingID,
+			Data:      string(jsonData),
+			StartID:   strokes[0].ID,
+			EndID:     strokes[len(strokes)-1].ID,
+		}
+
+		tx := h.db.Begin()
+		if err := tx.Create(&snapshot).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[Snapshot] Failed to create snapshot: %v", err)
+			return
+		}
+
+		// 4. Hard Delete processed strokes to keep table small as per user request ("Select lag")
+		// Soft Delete would keep rows and slow down indexes/Selects over time.
+		// Since data is safely in snapshot, we remove individual rows.
+		if err := tx.Where("meeting_id = ? AND id <= ? AND is_deleted = ?", meetingID, snapshot.EndID, false).
+			Delete(&model.WhiteboardStroke{}).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[Snapshot] Failed to delete strokes: %v", err)
+			return
+		}
+
+		tx.Commit()
+		log.Printf("[Snapshot] Successfully created snapshot %d (Strokes %d-%d merged and deleted)", snapshot.ID, snapshot.StartID, snapshot.EndID)
+	}
+}
+
 // HandleWhiteboard handles add, undo, redo, clear actions
 func (h *WhiteboardHandler) HandleWhiteboard(c *fiber.Ctx) error {
-	// Get authenticated user ID
 	userID := int64(0)
 	if val := c.Locals("userID"); val != nil {
 		userID = val.(int64)
@@ -104,105 +187,82 @@ func (h *WhiteboardHandler) HandleWhiteboard(c *fiber.Ctx) error {
 
 	meetingID, err := h.getMeetingID(req.Room, userID)
 	if err != nil {
-		// Log the error for debugging
-		// log.Printf("Failed to get meeting ID: %v", err)
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Meeting not found"})
 	}
 
 	switch req.Type {
 	case "clear":
-		// User requested to wipe all history ("휴지통을 누르면 Ctrl +Z / Ctrl +Y 용 기록들이 사라져야합니다")
-		// We use Hard Delete here.
-		log.Printf("[Whiteboard] User %d requesting CLEAR (Hard Delete) in meeting %d", userID, meetingID)
-		err := h.db.Where("meeting_id = ?", meetingID).Delete(&model.WhiteboardStroke{}).Error
-		if err != nil {
-			log.Printf("[Whiteboard] Failed to clear whiteboard: %v", err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to clear whiteboard"})
+		// Hard Delete everything for this meeting
+		log.Printf("[Whiteboard] User %d requesting CLEAR in meeting %d", userID, meetingID)
+		if err := h.db.Where("meeting_id = ?", meetingID).Delete(&model.WhiteboardStroke{}).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to clear strokes"})
 		}
-		log.Printf("[Whiteboard] Clear successful (History wiped)")
+		if err := h.db.Where("meeting_id = ?", meetingID).Delete(&model.WhiteboardSnapshot{}).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to clear snapshots"})
+		}
 
 	case "undo":
-		log.Printf("[Whiteboard] User %d requesting UNDO in meeting %d", userID, meetingID)
-		// Find last active stroke (Global Undo)
+		// Undo only affects 'WhiteboardStroke' (Active). We cannot easily undo a snapshot stroke.
 		var lastStroke model.WhiteboardStroke
-		err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, false).
-			Order("id DESC").
-			First(&lastStroke).Error
-
+		err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, false).Order("id DESC").First(&lastStroke).Error
 		if err == nil {
-			log.Printf("[Whiteboard] Undoing stroke ID: %d", lastStroke.ID)
-			lastStroke.IsDeleted = true
 			now := time.Now()
-			lastStroke.DeletedAt = &now // Mark deletion time for LIFO Redo
-			if saveErr := h.db.Save(&lastStroke).Error; saveErr != nil {
-				log.Printf("[Whiteboard] Failed to save undo: %v", saveErr)
-			}
-		} else {
-			log.Printf("[Whiteboard] Undo failed to find stroke (Error: %v)", err)
-			if err != gorm.ErrRecordNotFound {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to undo"})
-			}
+			// Mark as deleted
+			h.db.Model(&lastStroke).Updates(map[string]interface{}{
+				"is_deleted": true,
+				"deleted_at": now,
+			})
 		}
 
 	case "redo":
-		log.Printf("[Whiteboard] User %d requesting REDO in meeting %d", userID, meetingID)
-		// Find last deleted stroke based on DeletedAt (LIFO - Most recently deleted)
+		// Redo finds the most recently deleted stroke
 		var lastDeletedStroke model.WhiteboardStroke
-		err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, true).
-			Order("deleted_at DESC"). // Restore the one that was deleted most recently
-			First(&lastDeletedStroke).Error
-
+		err := h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, true).Order("deleted_at DESC").First(&lastDeletedStroke).Error
 		if err == nil {
-			log.Printf("[Whiteboard] Redoing stroke ID: %d", lastDeletedStroke.ID)
-			lastDeletedStroke.IsDeleted = false
-			lastDeletedStroke.DeletedAt = nil // Clear deletion time
-			if saveErr := h.db.Save(&lastDeletedStroke).Error; saveErr != nil {
-				log.Printf("[Whiteboard] Failed to save redo: %v", saveErr)
-			}
-		} else {
-			log.Printf("[Whiteboard] Redo failed to find stroke (Error: %v)", err)
-			if err != gorm.ErrRecordNotFound {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to redo"})
-			}
+			h.db.Model(&lastDeletedStroke).Updates(map[string]interface{}{
+				"is_deleted": false,
+				"deleted_at": gorm.Expr("NULL"),
+			})
 		}
 
 	default: // "add"
 		if req.Stroke != nil {
-			// Marshal stroke data to JSON
+			// Clear Redo stack first
+			h.db.Where("meeting_id = ? AND is_deleted = ?", meetingID, true).Delete(&model.WhiteboardStroke{})
+
 			strokeBytes, err := json.Marshal(req.Stroke)
 			if err != nil {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid stroke data"})
 			}
 
-			// Create new stroke entity
 			newStroke := model.WhiteboardStroke{
 				MeetingID:  meetingID,
 				UserID:     userID,
 				StrokeData: string(strokeBytes),
-				Layer:      0, // Default layer
 				IsDeleted:  false,
-				CreatedAt:  time.Now(),
 			}
 
 			if err := h.db.Create(&newStroke).Error; err != nil {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save stroke"})
 			}
 
-			// Snapshot Logic Check (Every 50 strokes? Not implementing yet as per plan Phase 1)
+			// Check for Snapshot Trigger in background
+			go h.snapshotStrokes(meetingID)
 		}
 	}
 
-	// Return success.
-	// Frontend expects { success: true, history: ..., canUndo: ... }
-	// To avoid fetching full history on every write (which would defeat optimization),
-	// we just return success flags. Frontend manages optimistic state.
-	// But if frontend relies on response to sync, we might need to conform.
-	// The original implementation returned full history.
-	// We will just return boolean flags.
+	// Calculate Undo/Redo state (Only for active non-snapshotted strokes)
+	var undoCount int64
+	h.db.Model(&model.WhiteboardStroke{}).Where("meeting_id = ? AND is_deleted = ?", meetingID, false).Count(&undoCount)
+	var redoCount int64
+	h.db.Model(&model.WhiteboardStroke{}).Where("meeting_id = ? AND is_deleted = ?", meetingID, true).Count(&redoCount)
+	// Note: 'undoCount' here is only recent strokes. If usage is high, users can't undo beyond snapshot.
+	// This fits the requirement "Keep recent 100 for Undo".
+
 	return c.JSON(fiber.Map{
 		"success": true,
-		"canUndo": true, // Ideally should query count, but let's keep it light
-		"canRedo": true,
+		"canUndo": undoCount > 0,
+		"canRedo": redoCount > 0,
 	})
 }
 

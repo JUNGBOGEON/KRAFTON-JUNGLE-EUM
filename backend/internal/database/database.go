@@ -101,6 +101,7 @@ func ConnectDB() (*gorm.DB, error) {
 		&model.WorkspaceFile{},
 		&model.Notification{},
 		&model.WhiteboardStroke{},
+		&model.WhiteboardSnapshot{},
 	); err != nil {
 		log.Printf("⚠️ AutoMigrate warning: %v", err)
 	}
@@ -118,7 +119,17 @@ func ConnectDB() (*gorm.DB, error) {
 		created_at timestamptz DEFAULT now()
 	);
 	CREATE INDEX IF NOT EXISTS idx_whiteboard_strokes_meeting_created ON whiteboard_strokes (meeting_id, created_at);
-	ALTER TABLE whiteboard_strokes ADD COLUMN IF NOT EXISTS deleted_at timestamptz;`
+	ALTER TABLE whiteboard_strokes ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+	
+	CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
+		id bigserial PRIMARY KEY,
+		meeting_id bigint NOT NULL,
+		data jsonb NOT NULL,
+		start_id bigint,
+		end_id bigint,
+		created_at timestamptz DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS idx_whiteboard_snapshots_meeting ON whiteboard_snapshots (meeting_id);`
 
 	if err := db.Exec(sql).Error; err != nil {
 		log.Printf("⚠️ Manual Table Creation Warning: %v", err)

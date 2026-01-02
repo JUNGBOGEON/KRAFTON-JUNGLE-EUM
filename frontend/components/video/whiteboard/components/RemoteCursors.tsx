@@ -68,35 +68,38 @@ function HandIcon() {
     );
 }
 
-export function CursorVisual({ color, name, tool, penColor, isDrawing, isLocal }: {
+export function CursorVisual({ color, name, tool, penColor, isDrawing, isLocal, showArrow = true }: {
     color: string;
     name: string;
     tool: WhiteboardTool;
     penColor?: string;
     isDrawing?: boolean;
     isLocal?: boolean;
+    showArrow?: boolean;
 }) {
     return (
         <>
             {/* Cursor Arrow SVG */}
-            <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                className="drop-shadow-md"
-            >
-                <path
-                    d="M5.65376 3.54639C5.10764 3.07987 4.27906 3.52968 4.33765 4.24087L5.6469 20.1293C5.70985 20.8954 6.62952 21.2376 7.1747 20.6834L10.4723 17.3858L13.894 22.3122C14.1962 22.7468 14.8014 22.8441 15.2207 22.5211L17.2008 21.0141C17.6049 20.7025 17.6837 20.1191 17.3779 19.7091L13.8946 14.6997L18.5529 13.4569C19.2763 13.264 19.4572 12.3395 18.8672 11.8807L5.65376 3.54639Z"
-                    fill={color}
-                    stroke="white"
-                    strokeWidth="1.5"
-                />
-            </svg>
+            {showArrow && (
+                <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    className="drop-shadow-md"
+                >
+                    <path
+                        d="M5.65376 3.54639C5.10764 3.07987 4.27906 3.52968 4.33765 4.24087L5.6469 20.1293C5.70985 20.8954 6.62952 21.2376 7.1747 20.6834L10.4723 17.3858L13.894 22.3122C14.1962 22.7468 14.8014 22.8441 15.2207 22.5211L17.2008 21.0141C17.6049 20.7025 17.6837 20.1191 17.3779 19.7091L13.8946 14.6997L18.5529 13.4569C19.2763 13.264 19.4572 12.3395 18.8672 11.8807L5.65376 3.54639Z"
+                        fill={color}
+                        stroke="white"
+                        strokeWidth="1.5"
+                    />
+                </svg>
+            )}
 
             {/* Name Badge with Tool Indicator */}
             <div
-                className="absolute left-5 top-4 flex items-center gap-1.5 px-2 py-1 rounded-full text-white text-xs font-medium whitespace-nowrap shadow-lg"
+                className={`absolute left-5 flex items-center gap-1.5 px-2 py-1 rounded-full text-white text-xs font-medium whitespace-nowrap shadow-lg ${showArrow ? 'top-4' : 'bottom-4'}`}
                 style={{ backgroundColor: color }}
             >
                 {/* Tool Icon */}

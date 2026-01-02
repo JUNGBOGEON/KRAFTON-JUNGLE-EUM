@@ -8,6 +8,8 @@ import { filterActiveMembers } from "../lib/utils";
 import NotificationDropdown from "../components/NotificationDropdown";
 import EditProfileModal from "../../components/EditProfileModal";
 
+console.log("[WorkspacePage] Module loaded");
+
 export default function WorkspacePage() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading, logout, refreshUser } = useAuth();
@@ -133,11 +135,14 @@ export default function WorkspacePage() {
   const fetchWorkspaces = useCallback(async () => {
     try {
       setIsLoadingWorkspaces(true);
+      console.log("[WorkspacePage] Fetching workspaces...");
       const response = await apiClient.getMyWorkspaces();
+      console.log("[WorkspacePage] Fetched workspaces:", response.workspaces.length);
       setWorkspaces(response.workspaces);
     } catch (error) {
-      console.error("Failed to fetch workspaces:", error);
+      console.error("[WorkspacePage] Failed to fetch workspaces:", error);
     } finally {
+      console.log("[WorkspacePage] fetchWorkspaces finally. Setting isLoadingWorkspaces false.");
       setIsLoadingWorkspaces(false);
     }
   }, []);
@@ -169,7 +174,9 @@ export default function WorkspacePage() {
 
   // 인증 상태 체크 및 워크스페이스 로드
   useEffect(() => {
+    console.log("[WorkspacePage] Auth Effect. isLoading:", isLoading, "isAuthenticated:", isAuthenticated);
     if (!isLoading && !isAuthenticated) {
+      console.log("[WorkspacePage] Redirecting to / because NOT authenticated");
       router.push("/");
     }
   }, [isLoading, isAuthenticated, router]);
@@ -177,6 +184,7 @@ export default function WorkspacePage() {
   // 워크스페이스 목록 로드
   useEffect(() => {
     if (isAuthenticated) {
+      console.log("[WorkspacePage] Authenticated, calling fetchWorkspaces");
       fetchWorkspaces();
     }
   }, [isAuthenticated, fetchWorkspaces]);

@@ -24,21 +24,21 @@ import (
 
 // Server Fiber 서버 래퍼
 type Server struct {
-	app                   *fiber.App
-	cfg                   *config.Config
-	db                    *gorm.DB
-	handler               *handler.AudioHandler
-	authHandler           *handler.AuthHandler
-	userHandler           *handler.UserHandler
-	workspaceHandler      *handler.WorkspaceHandler
-	notificationHandler   *handler.NotificationHandler
-	notificationWSHandler *handler.NotificationWSHandler
-	chatHandler           *handler.ChatHandler
-	chatWSHandler         *handler.ChatWSHandler
-	meetingHandler        *handler.MeetingHandler
-	calendarHandler       *handler.CalendarHandler
-	storageHandler        *handler.StorageHandler
-	roleHandler           *handler.RoleHandler
+	app                        *fiber.App
+	cfg                        *config.Config
+	db                         *gorm.DB
+	handler                    *handler.AudioHandler
+	authHandler                *handler.AuthHandler
+	userHandler                *handler.UserHandler
+	workspaceHandler           *handler.WorkspaceHandler
+	notificationHandler        *handler.NotificationHandler
+	notificationWSHandler      *handler.NotificationWSHandler
+	chatHandler                *handler.ChatHandler
+	chatWSHandler              *handler.ChatWSHandler
+	meetingHandler             *handler.MeetingHandler
+	calendarHandler            *handler.CalendarHandler
+	storageHandler             *handler.StorageHandler
+	roleHandler                *handler.RoleHandler
 	videoHandler               *handler.VideoHandler
 	whiteboardHandler          *handler.WhiteboardHandler
 	voiceRecordHandler         *handler.VoiceRecordHandler
@@ -101,21 +101,21 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	storageHandler := handler.NewStorageHandler(db, s3Service)
 
 	return &Server{
-		app:                   app,
-		cfg:                   cfg,
-		db:                    db,
-		handler:               handler.NewAudioHandler(cfg, db),
-		authHandler:           authHandler,
-		userHandler:           userHandler,
-		workspaceHandler:      workspaceHandler,
-		notificationHandler:   notificationHandler,
-		notificationWSHandler: notificationWSHandler,
-		chatHandler:           chatHandler,
-		chatWSHandler:         chatWSHandler,
-		meetingHandler:        meetingHandler,
-		calendarHandler:       calendarHandler,
-		storageHandler:        storageHandler,
-		roleHandler:           roleHandler,
+		app:                        app,
+		cfg:                        cfg,
+		db:                         db,
+		handler:                    handler.NewAudioHandler(cfg, db),
+		authHandler:                authHandler,
+		userHandler:                userHandler,
+		workspaceHandler:           workspaceHandler,
+		notificationHandler:        notificationHandler,
+		notificationWSHandler:      notificationWSHandler,
+		chatHandler:                chatHandler,
+		chatWSHandler:              chatWSHandler,
+		meetingHandler:             meetingHandler,
+		calendarHandler:            calendarHandler,
+		storageHandler:             storageHandler,
+		roleHandler:                roleHandler,
 		videoHandler:               videoHandler,
 		whiteboardHandler:          whiteboardHandler,
 		voiceRecordHandler:         voiceRecordHandler,

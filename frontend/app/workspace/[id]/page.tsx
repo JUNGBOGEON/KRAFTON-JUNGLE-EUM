@@ -113,7 +113,9 @@ export default function WorkspaceDetailPage() {
   }, [params.id]);
 
   useEffect(() => {
+    console.log("[WorkspaceDetailPage] Check Auth Effect. isLoading:", isLoading, "isAuthenticated:", isAuthenticated);
     if (!isLoading && !isAuthenticated) {
+      console.log("[WorkspaceDetailPage] Redirecting to / because NOT authenticated");
       router.push("/");
     }
   }, [isLoading, isAuthenticated, router]);
@@ -125,7 +127,7 @@ export default function WorkspaceDetailPage() {
     }
   }, [isAuthenticated, fetchWorkspace]);
 
-  if (isLoading || isLoadingWorkspace) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <img
@@ -137,8 +139,22 @@ export default function WorkspaceDetailPage() {
     );
   }
 
+  // 인증되지 않았으면 리다이렉트 대기 (useEffect에서 처리)
   if (!isAuthenticated || !user) {
     return null;
+  }
+
+  // 인증은 되었으나 워크스페이스 로딩 중
+  if (isLoadingWorkspace) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <img
+          src="/kor_eum_black.png"
+          alt="Loading"
+          className="w-12 h-12 animate-pulse"
+        />
+      </div>
+    );
   }
 
   if (error || !workspace) {
