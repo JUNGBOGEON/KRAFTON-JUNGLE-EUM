@@ -52,7 +52,7 @@ export interface RemoteCursor {
 }
 
 // Tool Types
-export type WhiteboardTool = 'pen' | 'eraser' | 'hand';
+export type WhiteboardTool = 'pen' | 'eraser' | 'hand' | 'magic-pen';
 
 // Graphics Cache for PIXI
 export interface GraphicsCache {

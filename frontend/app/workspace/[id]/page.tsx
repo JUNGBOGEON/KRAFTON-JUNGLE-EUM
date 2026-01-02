@@ -171,11 +171,13 @@ export default function WorkspaceDetailPage() {
     );
   }
 
+  // Permissions (Hoisted to avoid conditional hooks)
+  const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+  const canSendMessages = usePermission(workspace, "SEND_MESSAGES");
+
   const renderContent = () => {
     // 통화방 채널 처리
     if (activeSection.startsWith("call-")) {
-      const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
-
       return (
         <CallsSection
           workspaceId={workspace.id}
@@ -193,9 +195,6 @@ export default function WorkspaceDetailPage() {
       const roomId = parseInt(activeSection.replace("chat-", ""), 10);
 
       // 채팅방은 멤버 권한 체크가 다를 수 있음 (일단 기본적으로 접근 허용하되, 메시지 전송 권한은 체크)
-      // 채팅방은 멤버 권한 체크가 다를 수 있음 (일단 기본적으로 접근 허용하되, 메시지 전송 권한은 체크)
-      const canSendMessages = usePermission(workspace, "SEND_MESSAGES");
-
       return (
         <ChatSection
           workspaceId={workspace.id}
@@ -210,10 +209,6 @@ export default function WorkspaceDetailPage() {
     // DM 처리 (Sidebar 하이라이트 분리를 위해 prefix 변경: dm-)
     if (activeSection.startsWith("dm-")) {
       const roomId = parseInt(activeSection.replace("dm-", ""), 10);
-      // DM은 항상 메시지 전송 가능 (블락 기능 등이 없다면)
-      // 또는 워크스페이스 권한을 따름
-      const canSendMessages = usePermission(workspace, "SEND_MESSAGES");
-
       return (
         <ChatSection
           workspaceId={workspace.id}
@@ -241,7 +236,6 @@ export default function WorkspaceDetailPage() {
           </div>
         );
       case "calls":
-        const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
         return <CallsSection workspaceId={workspace.id} canConnectMedia={canConnectMedia} />;
       case "calendar":
         return <CalendarSection workspaceId={workspace.id} />;

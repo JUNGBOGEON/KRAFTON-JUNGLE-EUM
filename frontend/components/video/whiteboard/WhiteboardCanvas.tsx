@@ -26,7 +26,7 @@ export default function WhiteboardCanvas() {
         graphics: PIXI.Graphics;
         color: number;
         width: number;
-        isEraser: boolean;
+        tool: WhiteboardTool; // Changed from isEraser to tool
     } | null>(null);
 
     // Filters for Jitter Reduction (Phase 2)
@@ -81,37 +81,67 @@ export default function WhiteboardCanvas() {
     });
 
     // Smoothing Helper: Quadratic Bezier Interpolation
-    const drawSmoothStroke = (graphics: PIXI.Graphics, points: { x: number, y: number }[], width: number, color: number) => {
+    const drawSmoothStroke = (graphics: PIXI.Graphics, points: { x: number, y: number }[], width: number, color: number, isMagic: boolean = false) => {
         if (points.length === 0) return;
 
-        graphics.setStrokeStyle({
-            width,
-            color,
-            alpha: 1,
-            cap: 'round',
-            join: 'round'
-        });
+        // Build Path
+        const buildPath = () => {
+            if (points.length < 3) {
+                graphics.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    graphics.lineTo(points[i].x, points[i].y);
+                }
+            } else {
+                graphics.moveTo(points[0].x, points[0].y);
+                // Draw curves between midpoints
+                for (let i = 1; i < points.length - 1; i++) {
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+                    graphics.quadraticCurveTo(p1.x, p1.y, midX, midY);
+                }
+                // Connect to last point
+                const last = points[points.length - 1];
+                graphics.lineTo(last.x, last.y);
+            }
+        };
 
-        if (points.length < 3) {
-            graphics.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                graphics.lineTo(points[i].x, points[i].y);
-            }
+        if (isMagic) {
+            // Draw Halo (Thick, semitransparent)
+            // User Request: Maintain effect even when thick.
+            // Strategy: Use multiplier (x3) instead of fixed offset to scale effect with thickness.
+            graphics.setStrokeStyle({
+                width: width * 3, // Proportional scaling
+                color: color,
+                alpha: 0.15,
+                cap: 'round',
+                join: 'round'
+            });
+            buildPath();
+            graphics.stroke();
+
+            // Draw Core (Normal)
+            graphics.setStrokeStyle({
+                width,
+                color,
+                alpha: 1,
+                cap: 'round',
+                join: 'round'
+            });
+            buildPath(); // Rebuild path for second stroke
+            graphics.stroke();
         } else {
-            graphics.moveTo(points[0].x, points[0].y);
-            // Draw curves between midpoints
-            for (let i = 1; i < points.length - 1; i++) {
-                const p1 = points[i];
-                const p2 = points[i + 1];
-                const midX = (p1.x + p2.x) / 2;
-                const midY = (p1.y + p2.y) / 2;
-                graphics.quadraticCurveTo(p1.x, p1.y, midX, midY);
-            }
-            // Connect to last point
-            const last = points[points.length - 1];
-            graphics.lineTo(last.x, last.y);
+            graphics.setStrokeStyle({
+                width,
+                color,
+                alpha: 1,
+                cap: 'round',
+                join: 'round'
+            });
+            buildPath();
+            graphics.stroke();
         }
-        graphics.stroke();
     };
 
     // Drawing function (Legacy/Remote wrapper)
@@ -122,12 +152,14 @@ export default function WhiteboardCanvas() {
         if (!drawingContainerRef.current) return;
 
         const isEraser = color === 0xffffff;
+        // Legacy drawer doesn't support Magic Pen styles yet (or we infer from context?)
+        // For now, treat as pen.
 
         let graphics: PIXI.Graphics;
         const sameProp = currentGraphicsRef.current &&
             currentGraphicsRef.current.color === color &&
             currentGraphicsRef.current.width === width &&
-            currentGraphicsRef.current.isEraser === isEraser;
+            ((isEraser && currentGraphicsRef.current.tool === 'eraser') || (!isEraser && currentGraphicsRef.current.tool !== 'eraser'));
 
         if (sameProp && currentGraphicsRef.current) {
             graphics = currentGraphicsRef.current.graphics;
@@ -142,7 +174,7 @@ export default function WhiteboardCanvas() {
                 graphics,
                 color,
                 width,
-                isEraser,
+                tool: isEraser ? 'eraser' : 'pen',
             };
         }
 
@@ -336,7 +368,7 @@ export default function WhiteboardCanvas() {
                     graphics,
                     color,
                     width,
-                    isEraser: toolRef.current === 'eraser'
+                    tool: toolRef.current
                 };
             }
 
@@ -367,7 +399,7 @@ export default function WhiteboardCanvas() {
                 if (currentStroke.length > 0) {
                     // Extract points
                     const points = currentStroke.map(p => ({ x: p.x, y: p.y }));
-                    drawSmoothStroke(graphics, points, width, color);
+                    drawSmoothStroke(graphics, points, width, color, toolRef.current === 'magic-pen');
                 }
             }
 
@@ -432,6 +464,9 @@ export default function WhiteboardCanvas() {
                 currentStroke.push(event);
             }
 
+            // Capture graphics reference BEFORE clearing state
+            const activeGraphics = currentGraphicsRef.current;
+
             isDrawing = false;
             setIsDrawing(false);
             prevRawPoint = null;
@@ -440,51 +475,109 @@ export default function WhiteboardCanvas() {
 
             if (currentStroke.length > 0) {
                 try {
-                    // **CRITICAL**: Apply Douglas-Peucker Simplification
-                    // This reduces the number of points sent to the server, optimizing network and DB storage.
-                    const originalEvents = currentStroke;
-                    let eventsToSend = originalEvents;
+                    let eventsToSend = currentStroke;
+                    const isMagic = toolRef.current === 'magic-pen';
 
-                    if (originalEvents.length > 2) {
-                        const points: Point[] = [
-                            { x: originalEvents[0].prevX, y: originalEvents[0].prevY },
-                            ...originalEvents.map(e => ({ x: e.x, y: e.y }))
-                        ];
-                        // TUNING: Reduced tolerance from 0.1 to 0.01 (Virtually raw) to fix "Crumpled Curves"
-                        // We need more points for the Bezier smoothing to look natural.
-                        const tolerance = 0.01;
-                        const simplifiedPoints = simplifyPoints(points, tolerance);
+                    if (isMagic) {
+                        // **MAGIC PEN LOGIC: "Guess or Die"**
+                        const abortMagic = () => {
+                            if (activeGraphics) activeGraphics.graphics.clear();
+                            currentStroke = [];
+                        };
 
-                        if (simplifiedPoints.length >= 2) {
-                            const newEvents: DrawEvent[] = [];
-                            const color = originalEvents[0].color;
-                            const width = originalEvents[0].width;
+                        // 1. Too short? Vanish.
+                        if (currentStroke.length <= 10) {
+                            abortMagic();
+                            return;
+                        }
 
-                            for (let i = 1; i < simplifiedPoints.length; i++) {
-                                newEvents.push({
-                                    type: 'draw',
-                                    x: simplifiedPoints[i].x,
-                                    y: simplifiedPoints[i].y,
-                                    prevX: simplifiedPoints[i - 1].x,
-                                    prevY: simplifiedPoints[i - 1].y,
-                                    color,
-                                    width
-                                });
+                        // 2. Detect Shape
+                        const points = currentStroke.map(p => ({ x: p.x, y: p.y }));
+                        const { detectShape } = await import('./shapeRecognition');
+                        const result = detectShape(points);
+
+                        // 3. Not recognized? Vanish.
+                        if (result.type === 'none' || !result.correctedPoints) {
+                            console.log('[Magic Pen] Unrecognized shape. Vanishing.');
+                            abortMagic();
+                            return;
+                        }
+
+                        // 4. Success! Transform and Redraw.
+                        console.log(`[Shape Recognition] Detected ${result.type} (Score: ${result.score.toFixed(2)})`);
+
+                        // A. Clear the "Halo" (Rough stroke)
+                        if (activeGraphics) activeGraphics.graphics.clear();
+
+                        // B. Prepare Events for History/Server
+                        const newEvents: DrawEvent[] = [];
+                        const color = currentStroke[0].color;
+                        const width = currentStroke[0].width;
+                        const corrected = result.correctedPoints;
+
+                        for (let i = 0; i < corrected.length; i++) {
+                            const prev = i === 0 ? corrected[0] : corrected[i - 1];
+                            newEvents.push({
+                                type: 'draw',
+                                x: corrected[i].x,
+                                y: corrected[i].y,
+                                prevX: prev.x,
+                                prevY: prev.y,
+                                color,
+                                width
+                            });
+                        }
+                        eventsToSend = newEvents;
+
+                        // C. Draw Clean Shape Locally (Immediate Feedback)
+                        if (activeGraphics) {
+                            const g = activeGraphics.graphics;
+                            g.setStrokeStyle({
+                                width,
+                                color,
+                                alpha: 1,
+                                cap: 'round',
+                                join: 'round'
+                            });
+                            g.moveTo(corrected[0].x, corrected[0].y);
+                            for (let i = 1; i < corrected.length; i++) {
+                                g.lineTo(corrected[i].x, corrected[i].y);
                             }
-                            eventsToSend = newEvents;
+                            g.stroke();
+                        }
 
-                            // Debug Stats for User Verification
-                            const rawCount = originalEvents.length;
-                            const simplifiedCount = eventsToSend.length;
-                            const ratio = ((1 - simplifiedCount / rawCount) * 100).toFixed(1);
+                    } else {
+                        // **NORMAL PEN LOGIC**
+                        // Apply Douglas-Peucker Simplification for optimization
+                        const originalEvents = currentStroke;
 
-                            // Calculate bounds to see if stroke is "tiny" (glitch check)
-                            const xs = points.map(p => p.x);
-                            const ys = points.map(p => p.y);
-                            const boundsWidth = Math.max(...xs) - Math.min(...xs);
-                            const boundsHeight = Math.max(...ys) - Math.min(...ys);
+                        if (originalEvents.length > 2) {
+                            const points: Point[] = [
+                                { x: originalEvents[0].prevX, y: originalEvents[0].prevY },
+                                ...originalEvents.map(e => ({ x: e.x, y: e.y }))
+                            ];
+                            // TUNING: 0.01 tolerance for high fidelity with decent compression
+                            const tolerance = 0.01;
+                            const simplifiedPoints = simplifyPoints(points, tolerance);
 
-                            console.log(`[Whiteboard Debug] Tool: ${toolRef.current}, Pts: ${rawCount} -> ${simplifiedCount} (${ratio}% reduced), Bounds: ${boundsWidth.toFixed(1)}x${boundsHeight.toFixed(1)}`);
+                            if (simplifiedPoints.length >= 2) {
+                                const newEvents: DrawEvent[] = [];
+                                const color = originalEvents[0].color;
+                                const width = originalEvents[0].width;
+
+                                for (let i = 1; i < simplifiedPoints.length; i++) {
+                                    newEvents.push({
+                                        type: 'draw',
+                                        x: simplifiedPoints[i].x,
+                                        y: simplifiedPoints[i].y,
+                                        prevX: simplifiedPoints[i - 1].x,
+                                        prevY: simplifiedPoints[i - 1].y,
+                                        color,
+                                        width
+                                    });
+                                }
+                                eventsToSend = newEvents;
+                            }
                         }
                     }
 
@@ -709,6 +802,35 @@ export default function WhiteboardCanvas() {
             })
             .catch(err => console.error('Failed to clear board:', err));
     }, [room]);
+
+    // Cursor Update Effect
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        if (activeTool === 'magic-pen') {
+            // Custom Magic Wand Cursor (SVG Data URI)
+            const wandCursor = `url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>') 2 2, auto`;
+            containerRef.current.style.cursor = wandCursor;
+        } else if (activeTool === 'eraser') {
+            // Scaled size for cursor
+            const cursorCss = generateEraserCursor(eraserSize * scale);
+            containerRef.current.style.cursor = cursorCss;
+        } else if (activeTool === 'pen') {
+            // Scaled size for cursor
+            const cursorCss = generatePenCursor(penSize * scale, penColor);
+            containerRef.current.style.cursor = cursorCss;
+        } else if (activeTool === 'hand') {
+            containerRef.current.style.cursor = isInteracting ? 'grabbing' : 'grab';
+        } else {
+            containerRef.current.style.cursor = 'default';
+        }
+    }, [activeTool, penSize, eraserSize, penColor, scale, isInteracting]);
+
+    // Initial load
+    useEffect(() => {
+        if (!containerRef.current) return;
+        // Trigger initial cursor update
+    }, []);
 
     const performUndo = useCallback(async () => {
         if (!room?.name || !canUndo) return;

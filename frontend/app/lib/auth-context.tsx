@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return prev;
       });
-    }, 3000);
+    }, 10000);
 
     return () => clearTimeout(timer);
   }, [refreshUser]);
