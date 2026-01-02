@@ -9,23 +9,35 @@ interface UseAudioPlaybackOptions {
     onError?: (error: Error) => void;
 }
 
-interface AudioQueueItem {
-    data: ArrayBuffer;
-    sampleRate: number;
-    isPCM: boolean;
-    participantId?: string;
+// 참가자별 오디오 채널
+interface ParticipantChannel {
+    participantId: string;
+    gainNode: GainNode;
+    sourceNode: AudioBufferSourceNode | null;
+    isPlaying: boolean;
+    lastPlayTime: number;
 }
 
 interface UseAudioPlaybackReturn {
     isPlaying: boolean;
     currentParticipantId: string | null;
+    activeChannels: number;
     volume: number;
     setVolume: (volume: number) => void;
     playAudio: (audioData: ArrayBuffer, participantId?: string) => Promise<void>;
     playPCMAudio: (audioData: ArrayBuffer, sampleRate?: number, participantId?: string) => Promise<void>;
-    stopAudio: () => void;
+    stopAudio: (participantId?: string) => void;
+    stopAllAudio: () => void;
+    // 레거시 호환성
     queueAudio: (audioData: ArrayBuffer, sampleRate?: number, participantId?: string) => void;
 }
+
+// 설정
+const CONFIG = {
+    MAX_CHANNELS: 10,           // 최대 동시 재생 채널 수
+    CHANNEL_TIMEOUT_MS: 30000,  // 30초 후 비활성 채널 정리
+    DEFAULT_VOLUME: 0.8,        // 기본 볼륨
+};
 
 export function useAudioPlayback({
     volume: initialVolume = 1.0,
@@ -33,35 +45,25 @@ export function useAudioPlayback({
     onPlayEnd,
     onError,
 }: UseAudioPlaybackOptions = {}): UseAudioPlaybackReturn {
+    // 공유 AudioContext
     const audioContextRef = useRef<AudioContext | null>(null);
-    const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-    const gainNodeRef = useRef<GainNode | null>(null);
-    const audioQueueRef = useRef<AudioQueueItem[]>([]);
-    const isProcessingRef = useRef(false);
-    const currentParticipantIdRef = useRef<string | null>(null);
+    const masterGainRef = useRef<GainNode | null>(null);
 
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentParticipantId, setCurrentParticipantId] = useState<string | null>(null);
+    // 참가자별 채널 맵
+    const channelsRef = useRef<Map<string, ParticipantChannel>>(new Map());
+
     const [volume, setVolumeState] = useState(initialVolume);
+    const [activeChannels, setActiveChannels] = useState(0);
 
-    // AudioContext 초기화 (특정 샘플레이트로)
-    const getAudioContext = useCallback((sampleRate?: number) => {
-        // 샘플레이트가 다르면 새 context 생성
-        if (audioContextRef.current && sampleRate && audioContextRef.current.sampleRate !== sampleRate) {
-            audioContextRef.current.close();
-            audioContextRef.current = null;
-            gainNodeRef.current = null;
-        }
-
+    // AudioContext 초기화 (공유)
+    const getAudioContext = useCallback(() => {
         if (!audioContextRef.current) {
-            const options: AudioContextOptions = sampleRate ? { sampleRate } : {};
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)(options);
-            gainNodeRef.current = audioContextRef.current.createGain();
-            gainNodeRef.current.gain.value = volume;
-            gainNodeRef.current.connect(audioContextRef.current.destination);
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            masterGainRef.current = audioContextRef.current.createGain();
+            masterGainRef.current.gain.value = volume;
+            masterGainRef.current.connect(audioContextRef.current.destination);
         }
 
-        // suspended 상태면 resume
         if (audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
         }
@@ -69,20 +71,163 @@ export function useAudioPlayback({
         return audioContextRef.current;
     }, [volume]);
 
+    // 참가자 채널 가져오기 (없으면 생성)
+    const getOrCreateChannel = useCallback((participantId: string): ParticipantChannel => {
+        const existing = channelsRef.current.get(participantId);
+        if (existing) {
+            return existing;
+        }
+
+        const audioContext = getAudioContext();
+
+        // 새 채널 생성
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = CONFIG.DEFAULT_VOLUME;
+        gainNode.connect(masterGainRef.current!);
+
+        const channel: ParticipantChannel = {
+            participantId,
+            gainNode,
+            sourceNode: null,
+            isPlaying: false,
+            lastPlayTime: Date.now(),
+        };
+
+        channelsRef.current.set(participantId, channel);
+        console.log(`[AudioPlayback] Created channel for ${participantId}, total channels: ${channelsRef.current.size}`);
+
+        return channel;
+    }, [getAudioContext]);
+
+    // 비활성 채널 정리
+    const cleanupInactiveChannels = useCallback(() => {
+        const now = Date.now();
+        const toRemove: string[] = [];
+
+        channelsRef.current.forEach((channel, pid) => {
+            if (!channel.isPlaying && (now - channel.lastPlayTime) > CONFIG.CHANNEL_TIMEOUT_MS) {
+                toRemove.push(pid);
+            }
+        });
+
+        toRemove.forEach(pid => {
+            const channel = channelsRef.current.get(pid);
+            if (channel) {
+                channel.gainNode.disconnect();
+                channelsRef.current.delete(pid);
+                console.log(`[AudioPlayback] Removed inactive channel: ${pid}`);
+            }
+        });
+
+        // 채널 수 제한
+        if (channelsRef.current.size > CONFIG.MAX_CHANNELS) {
+            const sorted = Array.from(channelsRef.current.entries())
+                .filter(([_, ch]) => !ch.isPlaying)
+                .sort((a, b) => a[1].lastPlayTime - b[1].lastPlayTime);
+
+            const removeCount = channelsRef.current.size - CONFIG.MAX_CHANNELS;
+            for (let i = 0; i < removeCount && i < sorted.length; i++) {
+                const [pid, channel] = sorted[i];
+                channel.gainNode.disconnect();
+                channelsRef.current.delete(pid);
+                console.log(`[AudioPlayback] Removed oldest channel: ${pid}`);
+            }
+        }
+    }, []);
+
+    // 활성 채널 수 업데이트
+    const updateActiveCount = useCallback(() => {
+        const count = Array.from(channelsRef.current.values()).filter(ch => ch.isPlaying).length;
+        setActiveChannels(count);
+    }, []);
+
     // 볼륨 설정
     const setVolume = useCallback((newVolume: number) => {
         const clampedVolume = Math.max(0, Math.min(1, newVolume));
         setVolumeState(clampedVolume);
 
-        if (gainNodeRef.current) {
-            gainNodeRef.current.gain.value = clampedVolume;
+        if (masterGainRef.current) {
+            masterGainRef.current.gain.value = clampedVolume;
         }
     }, []);
 
-    // PCM 오디오 재생 (Int16 → Float32 변환)
-    const playPCMAudio = useCallback(async (audioData: ArrayBuffer, sampleRate: number = 22050, participantId?: string): Promise<void> => {
+    // MP3 오디오 재생 (참가자별 병렬)
+    const playAudio = useCallback(async (audioData: ArrayBuffer, participantId?: string): Promise<void> => {
+        const pid = participantId || 'unknown';
+
         try {
-            const audioContext = getAudioContext(sampleRate);
+            const audioContext = getAudioContext();
+            const channel = getOrCreateChannel(pid);
+
+            // 이전 재생 중지 (같은 참가자의 이전 오디오만)
+            if (channel.sourceNode) {
+                try {
+                    channel.sourceNode.stop();
+                    channel.sourceNode.disconnect();
+                } catch (e) {
+                    // 이미 중지된 경우 무시
+                }
+                channel.sourceNode = null;
+            }
+
+            // MP3 디코딩
+            const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
+
+            // 새 소스 노드 생성
+            const sourceNode = audioContext.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(channel.gainNode);
+
+            channel.sourceNode = sourceNode;
+            channel.isPlaying = true;
+            channel.lastPlayTime = Date.now();
+
+            updateActiveCount();
+            onPlayStart?.(pid);
+
+            console.log(`[AudioPlayback] ▶ Playing for ${pid}: ${audioBuffer.duration.toFixed(2)}s, active=${channelsRef.current.size}`);
+
+            return new Promise<void>((resolve) => {
+                sourceNode.onended = () => {
+                    channel.isPlaying = false;
+                    channel.sourceNode = null;
+                    updateActiveCount();
+                    onPlayEnd?.(pid);
+                    resolve();
+                };
+
+                sourceNode.start(0);
+            });
+        } catch (error) {
+            console.error(`[AudioPlayback] Failed to play for ${pid}:`, error);
+            const channel = channelsRef.current.get(pid);
+            if (channel) {
+                channel.isPlaying = false;
+                channel.sourceNode = null;
+            }
+            updateActiveCount();
+            onError?.(error instanceof Error ? error : new Error('Audio playback failed'));
+        }
+    }, [getAudioContext, getOrCreateChannel, updateActiveCount, onPlayStart, onPlayEnd, onError]);
+
+    // PCM 오디오 재생
+    const playPCMAudio = useCallback(async (audioData: ArrayBuffer, sampleRate: number = 22050, participantId?: string): Promise<void> => {
+        const pid = participantId || 'unknown';
+
+        try {
+            const audioContext = getAudioContext();
+            const channel = getOrCreateChannel(pid);
+
+            // 이전 재생 중지
+            if (channel.sourceNode) {
+                try {
+                    channel.sourceNode.stop();
+                    channel.sourceNode.disconnect();
+                } catch (e) {
+                    // 이미 중지된 경우 무시
+                }
+                channel.sourceNode = null;
+            }
 
             // Int16 → Float32 변환
             const int16Array = new Int16Array(audioData);
@@ -91,176 +236,131 @@ export function useAudioPlayback({
                 float32Array[i] = int16Array[i] / 32768.0;
             }
 
-            // AudioBuffer 생성
+            // AudioBuffer 생성 (AudioContext의 sampleRate로 리샘플링됨)
             const audioBuffer = audioContext.createBuffer(1, float32Array.length, sampleRate);
             audioBuffer.getChannelData(0).set(float32Array);
 
-            // 이전 재생 중지
-            if (sourceNodeRef.current) {
-                sourceNodeRef.current.stop();
-                sourceNodeRef.current.disconnect();
-            }
-
             // 새 소스 노드 생성
             const sourceNode = audioContext.createBufferSource();
             sourceNode.buffer = audioBuffer;
+            sourceNode.connect(channel.gainNode);
 
-            if (gainNodeRef.current) {
-                sourceNode.connect(gainNodeRef.current);
-            } else {
-                sourceNode.connect(audioContext.destination);
-            }
+            channel.sourceNode = sourceNode;
+            channel.isPlaying = true;
+            channel.lastPlayTime = Date.now();
 
-            sourceNodeRef.current = sourceNode;
-            currentParticipantIdRef.current = participantId || null;
-            setCurrentParticipantId(participantId || null);
+            updateActiveCount();
+            onPlayStart?.(pid);
+
+            console.log(`[AudioPlayback] ▶ Playing PCM for ${pid}: ${audioBuffer.duration.toFixed(2)}s`);
 
             return new Promise<void>((resolve) => {
                 sourceNode.onended = () => {
-                    setIsPlaying(false);
-                    setCurrentParticipantId(null);
-                    sourceNodeRef.current = null;
-                    currentParticipantIdRef.current = null;
-                    onPlayEnd?.(participantId);
+                    channel.isPlaying = false;
+                    channel.sourceNode = null;
+                    updateActiveCount();
+                    onPlayEnd?.(pid);
                     resolve();
                 };
 
-                setIsPlaying(true);
-                onPlayStart?.(participantId);
                 sourceNode.start(0);
             });
         } catch (error) {
-            console.error("[AudioPlayback] Failed to play PCM audio:", error);
-            setIsPlaying(false);
-            setCurrentParticipantId(null);
-            currentParticipantIdRef.current = null;
+            console.error(`[AudioPlayback] Failed to play PCM for ${pid}:`, error);
+            const channel = channelsRef.current.get(pid);
+            if (channel) {
+                channel.isPlaying = false;
+                channel.sourceNode = null;
+            }
+            updateActiveCount();
             onError?.(error instanceof Error ? error : new Error('PCM audio playback failed'));
         }
-    }, [getAudioContext, onPlayStart, onPlayEnd, onError]);
+    }, [getAudioContext, getOrCreateChannel, updateActiveCount, onPlayStart, onPlayEnd, onError]);
 
-    // MP3 오디오 재생 (기존 방식)
-    const playAudio = useCallback(async (audioData: ArrayBuffer, participantId?: string): Promise<void> => {
-        try {
-            const audioContext = getAudioContext();
-
-            // MP3 디코딩
-            const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
-
-            // 이전 재생 중지
-            if (sourceNodeRef.current) {
-                sourceNodeRef.current.stop();
-                sourceNodeRef.current.disconnect();
-            }
-
-            // 새 소스 노드 생성
-            const sourceNode = audioContext.createBufferSource();
-            sourceNode.buffer = audioBuffer;
-
-            if (gainNodeRef.current) {
-                sourceNode.connect(gainNodeRef.current);
-            } else {
-                sourceNode.connect(audioContext.destination);
-            }
-
-            sourceNodeRef.current = sourceNode;
-            currentParticipantIdRef.current = participantId || null;
-            setCurrentParticipantId(participantId || null);
-
-            return new Promise<void>((resolve) => {
-                sourceNode.onended = () => {
-                    setIsPlaying(false);
-                    setCurrentParticipantId(null);
-                    sourceNodeRef.current = null;
-                    currentParticipantIdRef.current = null;
-                    onPlayEnd?.(participantId);
-                    resolve();
-                };
-
-                setIsPlaying(true);
-                onPlayStart?.(participantId);
-                sourceNode.start(0);
-            });
-        } catch (error) {
-            console.error("[AudioPlayback] Failed to play audio:", error);
-            setIsPlaying(false);
-            setCurrentParticipantId(null);
-            currentParticipantIdRef.current = null;
-            onError?.(error instanceof Error ? error : new Error('Audio playback failed'));
-        }
-    }, [getAudioContext, onPlayStart, onPlayEnd, onError]);
-
-    // 큐 처리
-    const processQueue = useCallback(async () => {
-        if (isProcessingRef.current || audioQueueRef.current.length === 0) {
-            return;
-        }
-
-        isProcessingRef.current = true;
-
-        while (audioQueueRef.current.length > 0) {
-            const item = audioQueueRef.current.shift();
-            if (item) {
-                if (item.isPCM) {
-                    await playPCMAudio(item.data, item.sampleRate, item.participantId);
-                } else {
-                    await playAudio(item.data, item.participantId);
+    // 특정 참가자 오디오 중지
+    const stopAudio = useCallback((participantId?: string) => {
+        if (participantId) {
+            const channel = channelsRef.current.get(participantId);
+            if (channel?.sourceNode) {
+                try {
+                    channel.sourceNode.stop();
+                    channel.sourceNode.disconnect();
+                } catch (e) {
+                    // 이미 중지된 경우 무시
                 }
+                channel.sourceNode = null;
+                channel.isPlaying = false;
             }
         }
+        updateActiveCount();
+    }, [updateActiveCount]);
 
-        isProcessingRef.current = false;
+    // 모든 오디오 중지
+    const stopAllAudio = useCallback(() => {
+        channelsRef.current.forEach((channel) => {
+            if (channel.sourceNode) {
+                try {
+                    channel.sourceNode.stop();
+                    channel.sourceNode.disconnect();
+                } catch (e) {
+                    // 이미 중지된 경우 무시
+                }
+                channel.sourceNode = null;
+                channel.isPlaying = false;
+            }
+        });
+        updateActiveCount();
+    }, [updateActiveCount]);
+
+    // 레거시 호환성: queueAudio (이제 즉시 재생)
+    const queueAudio = useCallback((audioData: ArrayBuffer, sampleRate?: number, participantId?: string) => {
+        // 병렬 재생이므로 큐 없이 즉시 재생
+        if (sampleRate !== undefined) {
+            playPCMAudio(audioData, sampleRate, participantId);
+        } else {
+            playAudio(audioData, participantId);
+        }
     }, [playAudio, playPCMAudio]);
 
-    // 오디오 큐에 추가 (PCM 형식 - sampleRate가 있으면 PCM으로 처리)
-    const queueAudio = useCallback((audioData: ArrayBuffer, sampleRate?: number, participantId?: string) => {
-        const isPCM = sampleRate !== undefined;
-        audioQueueRef.current.push({
-            data: audioData,
-            sampleRate: sampleRate || 44100,
-            isPCM,
-            participantId,
-        });
-
-        // 재생 중이 아니면 큐 처리 시작
-        if (!isPlaying && !isProcessingRef.current) {
-            processQueue();
-        }
-    }, [isPlaying, processQueue]);
-
-    // 오디오 중지
-    const stopAudio = useCallback(() => {
-        // 큐 클리어
-        audioQueueRef.current = [];
-        isProcessingRef.current = false;
-
-        if (sourceNodeRef.current) {
-            sourceNodeRef.current.stop();
-            sourceNodeRef.current.disconnect();
-            sourceNodeRef.current = null;
-        }
-
-        setIsPlaying(false);
-    }, []);
+    // 주기적 채널 정리
+    useEffect(() => {
+        const interval = setInterval(cleanupInactiveChannels, 10000);
+        return () => clearInterval(interval);
+    }, [cleanupInactiveChannels]);
 
     // 클린업
     useEffect(() => {
         return () => {
-            stopAudio();
+            stopAllAudio();
+            channelsRef.current.forEach((channel) => {
+                channel.gainNode.disconnect();
+            });
+            channelsRef.current.clear();
             if (audioContextRef.current) {
                 audioContextRef.current.close();
                 audioContextRef.current = null;
             }
         };
-    }, [stopAudio]);
+    }, [stopAllAudio]);
+
+    // isPlaying은 하나라도 재생 중이면 true
+    const isPlaying = activeChannels > 0;
+
+    // currentParticipantId는 가장 최근 재생 시작한 참가자
+    const currentParticipantId = Array.from(channelsRef.current.entries())
+        .filter(([_, ch]) => ch.isPlaying)
+        .sort((a, b) => b[1].lastPlayTime - a[1].lastPlayTime)[0]?.[0] || null;
 
     return {
         isPlaying,
         currentParticipantId,
+        activeChannels,
         volume,
         setVolume,
         playAudio,
         playPCMAudio,
         stopAudio,
+        stopAllAudio,
         queueAudio,
     };
 }

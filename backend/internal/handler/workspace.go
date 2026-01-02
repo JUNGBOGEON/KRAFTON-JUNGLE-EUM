@@ -279,7 +279,10 @@ func (h *WorkspaceHandler) GetWorkspace(c *fiber.Ctx) error {
 					{PermissionCode: "SEND_MESSAGES"},
 					{PermissionCode: "CONNECT_MEDIA"},
 				}
-				h.db.Create(&defaultRole)
+				if err := h.db.Create(&defaultRole).Error; err != nil {
+					log.Printf("warning: failed to create default role for workspace %d: %v", workspace.ID, err)
+					return
+				}
 			}
 		}
 

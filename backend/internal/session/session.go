@@ -55,6 +55,8 @@ type Session struct {
 	SourceLanguage string // 발화자가 말하는 언어 (ko, en, ja, zh)
 	Language       string // 번역 대상 언어 (ko, en, ja, zh) - 하위 호환용
 	ParticipantID  string // 발화자 식별 ID (원격 참가자의 identity)
+	RoomID         string // 방 ID (같은 방의 동일 언어 그룹을 묶기 위해)
+	ListenerID     string // 듣는 사람의 ID (번역 결과를 받을 사용자)
 
 	// 동시성 제어
 	mu sync.RWMutex
@@ -161,6 +163,38 @@ func (s *Session) GetParticipantID() string {
 	defer s.mu.RUnlock()
 
 	return s.ParticipantID
+}
+
+// SetRoomID 방 ID 설정
+func (s *Session) SetRoomID(roomID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.RoomID = roomID
+}
+
+// GetRoomID 방 ID 조회
+func (s *Session) GetRoomID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.RoomID
+}
+
+// SetListenerID 듣는 사람 ID 설정
+func (s *Session) SetListenerID(listenerID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ListenerID = listenerID
+}
+
+// GetListenerID 듣는 사람 ID 조회
+func (s *Session) GetListenerID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.ListenerID
 }
 
 // GetState 현재 상태 조회

@@ -55,8 +55,17 @@ function VideoCallContent({
 
     // 로컬 참가자의 메타데이터에 sourceLanguage 저장 (다른 참가자가 알 수 있도록)
     useEffect(() => {
-        if (localParticipant) {
+        if (!localParticipant) return;
+
+        // 연결 상태 확인 후 메타데이터 설정
+        const updateMetadata = async () => {
             try {
+                // 참가자가 완전히 연결될 때까지 대기
+                if (!localParticipant.sid) {
+                    console.log('[VideoCallContent] Waiting for participant to be fully connected...');
+                    return;
+                }
+
                 // 기존 메타데이터 파싱 (있으면)
                 let existingMetadata: Record<string, unknown> = {};
                 if (localParticipant.metadata) {
@@ -74,13 +83,24 @@ function VideoCallContent({
                     profileImg: user?.profileImg,
                 };
 
-                localParticipant.setMetadata(JSON.stringify(newMetadata));
+                // 기존 메타데이터와 같으면 업데이트 스킵
+                const newMetadataStr = JSON.stringify(newMetadata);
+                if (localParticipant.metadata === newMetadataStr) {
+                    return;
+                }
+
+                await localParticipant.setMetadata(newMetadataStr);
                 console.log(`[VideoCallContent] Updated local participant metadata:`, newMetadata);
             } catch (err) {
-                console.error('[VideoCallContent] Failed to update metadata:', err);
+                // 타임아웃이나 연결 오류는 무시 (재시도하지 않음)
+                console.warn('[VideoCallContent] Failed to update metadata (non-critical):', err);
             }
-        }
-    }, [localParticipant, sourceLanguage, user?.profileImg]);
+        };
+
+        // 약간의 딜레이 후 메타데이터 업데이트 (연결 안정화 대기)
+        const timeoutId = setTimeout(updateMetadata, 500);
+        return () => clearTimeout(timeoutId);
+    }, [localParticipant, localParticipant?.sid, sourceLanguage, user?.profileImg]);
 
     // STT/번역 결과 처리 (모든 원격 참가자)
     const handleTranscript = useCallback((data: RemoteTranscriptData) => {
@@ -153,7 +173,7 @@ function VideoCallContent({
             setCurrentOriginal(data.original);
             setCurrentTranscript(data.translated);
 
-            // 5초 후 자막 클리어
+            // 3초 후 자막 클리어 (더 빠르게)
             if (transcriptTimeoutRef.current) {
                 clearTimeout(transcriptTimeoutRef.current);
             }
@@ -161,7 +181,7 @@ function VideoCallContent({
                 setCurrentTranscript(null);
                 setCurrentOriginal(null);
                 setCurrentSpeaker(null);
-            }, 5000);
+            }, 3000);
         }
     }, [isTranslationOpen, targetLanguage]);
 
@@ -169,10 +189,12 @@ function VideoCallContent({
     const {
         isActive: isTranslationActive,
     } = useRemoteParticipantTranslation({
+        roomId,                      // 방 ID (같은 방의 동일 언어 그룹을 묶기 위해)
         enabled: isTranslationOpen,  // TTS 재생 여부 (번역 모드)
         sttEnabled: true,            // STT는 항상 활성화
         sourceLanguage,              // 발화자가 말하는 언어
         targetLanguage,              // 듣고 싶은 언어
+        listenerId: localParticipant?.identity,  // 리스너 ID
         autoPlayTTS: true,
         onTranscript: handleTranscript,
     });

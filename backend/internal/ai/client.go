@@ -311,10 +311,22 @@ func (c *GrpcClient) StartChatStream(ctx context.Context, sessionID, roomID stri
 					log.Printf("⚠️ [%s] Transcript channel full, dropping", sessionID)
 				}
 
+				// Latency tracking
+				now := time.Now().UnixMilli()
+				latencyMs := int64(0)
+				if tr.TimestampMs > 0 {
+					latencyMs = now - int64(tr.TimestampMs)
+				}
+
 				if tr.IsPartial {
-					log.Printf("🗣️ [%s] STT Partial: %s", sessionID, tr.OriginalText)
+					log.Printf("🗣️ [%s] STT Partial: %s (latency: %dms)", sessionID, tr.OriginalText, latencyMs)
 				} else if tr.IsFinal {
-					log.Printf("✅ [%s] STT Final: %s (translations: %d)", sessionID, tr.OriginalText, len(tr.Translations))
+					transInfo := ""
+					for _, t := range tr.Translations {
+						transInfo += t.TargetLanguage + ":" + t.TranslatedText[:min(20, len(t.TranslatedText))] + "... "
+					}
+					log.Printf("✅ [%s] STT Final: '%s' → [%s] (conf: %.2f, latency: %dms)",
+						sessionID, tr.OriginalText, transInfo, tr.Confidence, latencyMs)
 				}
 
 			case *pb.ChatResponse_Audio:

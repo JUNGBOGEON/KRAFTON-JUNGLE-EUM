@@ -67,6 +67,19 @@ func (h *WhiteboardHandler) GetWhiteboard(c *fiber.Ctx) error {
 			history = append(history, chunk...)
 		} else {
 			log.Printf("[Whiteboard] Failed to parse snapshot %d: %v", snap.ID, err)
+	history := []any{}
+	if whiteboard.Data != nil {
+		if err := json.Unmarshal([]byte(*whiteboard.Data), &history); err != nil {
+			log.Printf("warning: failed to unmarshal whiteboard history: %v", err)
+			history = []any{}
+		}
+	}
+
+	redoStack := []any{}
+	if whiteboard.RedoData != nil {
+		if err := json.Unmarshal([]byte(*whiteboard.RedoData), &redoStack); err != nil {
+			log.Printf("warning: failed to unmarshal whiteboard redo stack: %v", err)
+			redoStack = []any{}
 		}
 	}
 
@@ -188,6 +201,20 @@ func (h *WhiteboardHandler) HandleWhiteboard(c *fiber.Ctx) error {
 	meetingID, err := h.getMeetingID(req.Room, userID)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Meeting not found"})
+	history := []any{}
+	if whiteboard.Data != nil {
+		if err := json.Unmarshal([]byte(*whiteboard.Data), &history); err != nil {
+			log.Printf("warning: failed to unmarshal whiteboard history: %v", err)
+			history = []any{}
+		}
+	}
+
+	redoStack := []any{}
+	if whiteboard.RedoData != nil {
+		if err := json.Unmarshal([]byte(*whiteboard.RedoData), &redoStack); err != nil {
+			log.Printf("warning: failed to unmarshal whiteboard redo stack: %v", err)
+			redoStack = []any{}
+		}
 	}
 
 	switch req.Type {

@@ -20,6 +20,8 @@ import (
 	"realtime-backend/internal/handler"
 	"realtime-backend/internal/model"
 	"realtime-backend/internal/presence"
+	"realtime-backend/internal/middleware"
+	"realtime-backend/internal/service"
 	"realtime-backend/internal/storage"
 )
 
@@ -44,7 +46,10 @@ type Server struct {
 	whiteboardHandler          *handler.WhiteboardHandler
 	voiceRecordHandler         *handler.VoiceRecordHandler
 	voiceParticipantsWSHandler *handler.VoiceParticipantsWSHandler
+	healthHandler              *handler.HealthHandler
 	jwtManager                 *auth.JWTManager
+	memberService              *service.MemberService
+	workspaceMW                *middleware.WorkspaceMiddleware
 }
 
 // New 새 서버 인스턴스 생성
@@ -107,6 +112,11 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		log.Println("ℹ️ S3 service not configured (file upload will be disabled)")
 	}
 	storageHandler := handler.NewStorageHandler(db, s3Service)
+	healthHandler := handler.NewHealthHandler(db, cfg.AI.ServerAddr)
+
+	// Service 레이어 초기화
+	memberService := service.NewMemberService(db)
+	workspaceMW := middleware.NewWorkspaceMiddleware(memberService)
 
 	return &Server{
 		app:                        app,
@@ -128,7 +138,10 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		whiteboardHandler:          whiteboardHandler,
 		voiceRecordHandler:         voiceRecordHandler,
 		voiceParticipantsWSHandler: voiceParticipantsWSHandler,
+		healthHandler:              healthHandler,
 		jwtManager:                 jwtManager,
+		memberService:              memberService,
+		workspaceMW:                workspaceMW,
 	}
 }
 
@@ -160,15 +173,11 @@ func (s *Server) SetupMiddleware() {
 
 // SetupRoutes 라우트 설정
 func (s *Server) SetupRoutes() {
-	// 루트 엔드포인트 (ALB 헬스체크용)
-	s.app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("OK")
-	})
-
 	// 헬스체크 엔드포인트
-	s.app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "healthy"})
-	})
+	s.app.Get("/", s.healthHandler.Liveness)           // ALB 헬스체크용
+	s.app.Get("/health", s.healthHandler.Check)        // 전체 상태 (DB + AI)
+	s.app.Get("/health/live", s.healthHandler.Liveness)   // K8s liveness probe
+	s.app.Get("/health/ready", s.healthHandler.Readiness) // K8s readiness probe
 
 	// Rate Limiter 설정 (인증 엔드포인트용 - Brute Force 방지)
 	authLimiter := limiter.New(limiter.Config{
@@ -209,7 +218,6 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Post("/", s.workspaceHandler.CreateWorkspace)
 	workspaceGroup.Get("/", s.workspaceHandler.GetMyWorkspaces)
 	workspaceGroup.Get("/:id", s.workspaceHandler.GetWorkspace)
-	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
 	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
 	workspaceGroup.Delete("/:id/leave", s.workspaceHandler.LeaveWorkspace)
 	workspaceGroup.Put("/:id/members/:userId/role", s.workspaceHandler.UpdateMemberRole)
@@ -326,6 +334,14 @@ func (s *Server) SetupRoutes() {
 		// 발화자 식별 ID 추출 (원격 참가자의 identity)
 		participantId := c.Query("participantId", "")
 		c.Locals("participantId", participantId)
+
+		// Room ID 추출 (같은 방의 동일 언어 그룹을 묶기 위해)
+		roomId := c.Query("roomId", "")
+		c.Locals("roomId", roomId)
+
+		// Listener ID 추출 (듣는 사람의 identity)
+		listenerId := c.Query("listenerId", "")
+		c.Locals("listenerId", listenerId)
 
 		return c.Next()
 	}, websocket.New(s.handler.HandleWebSocket, websocket.Config{

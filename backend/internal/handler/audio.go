@@ -104,6 +104,16 @@ func (h *AudioHandler) HandleWebSocket(c *websocket.Conn) {
 				return
 			}
 		}
+	// Room ID 추출 (Locals에서)
+	if roomId, ok := c.Locals("roomId").(string); ok && roomId != "" {
+		sess.SetRoomID(roomId)
+		log.Printf("🏠 [%s] Room ID: %s", sess.ID, roomId)
+	}
+
+	// Listener ID 추출 (Locals에서)
+	if listenerId, ok := c.Locals("listenerId").(string); ok && listenerId != "" {
+		sess.SetListenerID(listenerId)
+		log.Printf("👂 [%s] Listener ID: %s", sess.ID, listenerId)
 	}
 
 	log.Printf("🔗 [%s] New WebSocket connection established", sess.ID)
@@ -232,6 +242,10 @@ func (h *AudioHandler) getMode() string {
 
 // receiveLoop 오디오 데이터 수신 및 채널 전달
 func (h *AudioHandler) receiveLoop(c *websocket.Conn, sess *session.Session) {
+	var lastLogTime time.Time
+	var packetsSinceLog int64
+	var bytesSinceLog int64
+
 	for {
 		select {
 		case <-sess.Context().Done():
@@ -273,6 +287,18 @@ func (h *AudioHandler) receiveLoop(c *websocket.Conn, sess *session.Session) {
 		}
 
 		sess.AddAudioBytes(int64(len(dataCopy)))
+
+		// Debug logging (매 1초마다)
+		packetsSinceLog++
+		bytesSinceLog += int64(len(dataCopy))
+		if time.Since(lastLogTime) >= time.Second {
+			audioDurationMs := float64(bytesSinceLog) / 32.0 // 16kHz * 2bytes = 32 bytes/ms
+			log.Printf("📊 [%s] Audio stats: packets=%d, bytes=%d, duration=%.0fms/sec",
+				sess.ID, packetsSinceLog, bytesSinceLog, audioDurationMs)
+			lastLogTime = time.Now()
+			packetsSinceLog = 0
+			bytesSinceLog = 0
+		}
 
 		// Non-blocking send
 		select {
@@ -341,7 +367,12 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 	}
 
 	// 단일 gRPC 스트림 시작 (SessionConfig 전달)
-	roomID := sess.ID // TODO: 실제 room ID 사용
+	roomID := sess.GetRoomID()
+	if roomID == "" {
+		roomID = sess.ID // 방 ID가 없으면 세션 ID 사용
+	}
+	listenerId := sess.GetListenerID()
+	log.Printf("🏠 [%s] Starting AI stream with roomId=%s, listenerId=%s", sess.ID, roomID, listenerId)
 	chatStream, err := h.aiClient.StartChatStream(sess.Context(), sess.ID, roomID, config)
 	if err != nil {
 		log.Printf("❌ [%s] Failed to start AI stream: %v", sess.ID, err)

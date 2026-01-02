@@ -15,7 +15,7 @@ import NotificationDropdown from "../../components/NotificationDropdown";
 import EditProfileModal from "../../../components/EditProfileModal";
 import StatusIndicator from "../../../components/StatusIndicator";
 import GlobalUserProfileMenu from "../../../components/GlobalUserProfileMenu";
-import { useVoiceParticipantsWebSocket } from "../../hooks/useVoiceParticipantsWebSocket";
+import { useVoiceParticipantsWebSocket, VoiceParticipant } from "../../hooks/useVoiceParticipantsWebSocket";
 import { usePermission } from "../../hooks/usePermission";
 
 export default function WorkspaceDetailPage() {
@@ -47,11 +47,37 @@ export default function WorkspaceDetailPage() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
 
+  // 음성 참가자 상태 (채널별)
+  const [voiceParticipants, setVoiceParticipants] = useState<Record<string, VoiceParticipant[]>>({});
+
   // 음성 참가자 WebSocket (입장/퇴장 알림용)
   const workspaceId = Number(params.id);
   const { sendJoin, sendLeave } = useVoiceParticipantsWebSocket({
     workspaceId: isNaN(workspaceId) ? 0 : workspaceId,
     enabled: isAuthenticated && !isNaN(workspaceId),
+    onParticipantsInit: (participants) => {
+      setVoiceParticipants(participants);
+    },
+    onParticipantJoin: (channelId, participant) => {
+      setVoiceParticipants(prev => {
+        const current = prev[channelId] || [];
+        // 중복 제거
+        if (current.some(p => p.identity === participant.identity)) return prev;
+        return {
+          ...prev,
+          [channelId]: [...current, participant]
+        };
+      });
+    },
+    onParticipantLeave: (channelId, identity) => {
+      setVoiceParticipants(prev => {
+        const current = prev[channelId] || [];
+        return {
+          ...prev,
+          [channelId]: current.filter(p => p.identity !== identity)
+        };
+      });
+    }
   });
 
   // 통화 입장 핸들러
@@ -69,7 +95,8 @@ export default function WorkspaceDetailPage() {
     // WebSocket으로 입장 알림
     if (user) {
       const roomName = `workspace - ${workspaceId} -${channelId} `;
-      sendJoin(roomName, user.nickname, user.nickname, user.profileImg);
+      // Identity를 User ID로 전송
+      sendJoin(roomName, user.id.toString(), user.nickname, user.profileImg);
     }
   }, [user, workspaceId, sendJoin]);
 
@@ -77,7 +104,7 @@ export default function WorkspaceDetailPage() {
   const handleLeaveCall = useCallback(() => {
     if (activeCall && user) {
       const roomName = `workspace - ${workspaceId} -${activeCall.channelId} `;
-      sendLeave(roomName, user.nickname);
+      sendLeave(roomName, user.id.toString());
     }
     setActiveCall(null);
   }, [activeCall, user, workspaceId, sendLeave]);
@@ -182,6 +209,15 @@ export default function WorkspaceDetailPage() {
   const renderContent = () => {
     // 통화방 채널 처리
     if (activeSection.startsWith("call-")) {
+      const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+
+      // 현재 채널의 참가자 목록 변환 (Identity(string ID) -> ID(number))
+      const currentParticipants = (voiceParticipants[activeSection] || []).map(p => ({
+        id: parseInt(p.identity, 10) || 0, // Identity가 숫자가 아니면 0 (기존 닉네임 방식 호환성 고려 필요하면 처리)
+        nickname: p.name,
+        profileImg: p.profileImg,
+      }));
+
       return (
         <CallsSection
           workspaceId={workspace.id}
@@ -190,6 +226,7 @@ export default function WorkspaceDetailPage() {
           onJoinCall={handleJoinCall}
           onLeaveCall={handleLeaveCall}
           canConnectMedia={canConnectMedia}
+          channelParticipants={currentParticipants}
         />
       );
     }
@@ -238,6 +275,12 @@ export default function WorkspaceDetailPage() {
           </div>
         );
       case "calls":
+        const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+        // 전체 통화 채널의 참가자 합계? 아니면 CallsSection이 목록을 보여줄 때 사용?
+        // activeSection이 "calls"일 때는 특정 채널이 아닌 대시보드일 수 있음.
+        // 하지만 CallsSection은 channelId가 없으면 빈 화면을 보여줄 수 있음.
+        // 여기서는 channelId prop이 필수인지 확인 필요.
+        // CallsSection 정의: channelId?: string
         return <CallsSection workspaceId={workspace.id} canConnectMedia={canConnectMedia} />;
       case "calendar":
         return <CalendarSection workspaceId={workspace.id} />;

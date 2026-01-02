@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -164,7 +165,9 @@ func (h *MeetingHandler) CreateMeeting(c *fiber.Ctx) error {
 		UserID:    &claims.UserID,
 		Role:      "HOST",
 	}
-	h.db.Create(&participant)
+	if err := h.db.Create(&participant).Error; err != nil {
+		log.Printf("warning: failed to add host as participant for meeting %d: %v", meeting.ID, err)
+	}
 
 	// 전체 정보 로드
 	h.db.Preload("Host").Preload("Participants.User").First(&meeting, meeting.ID)
@@ -250,7 +253,11 @@ func (h *MeetingHandler) StartMeeting(c *fiber.Ctx) error {
 	now := time.Now()
 	meeting.Status = "IN_PROGRESS"
 	meeting.StartedAt = &now
-	h.db.Save(&meeting)
+	if err := h.db.Save(&meeting).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to start meeting",
+		})
+	}
 
 	h.db.Preload("Host").Preload("Participants.User").First(&meeting, meeting.ID)
 
@@ -291,7 +298,11 @@ func (h *MeetingHandler) EndMeeting(c *fiber.Ctx) error {
 	now := time.Now()
 	meeting.Status = "ENDED"
 	meeting.EndedAt = &now
-	h.db.Save(&meeting)
+	if err := h.db.Save(&meeting).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to end meeting",
+		})
+	}
 
 	return c.JSON(fiber.Map{
 		"message": "meeting ended",

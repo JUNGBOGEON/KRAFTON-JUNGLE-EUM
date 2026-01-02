@@ -125,10 +125,6 @@ export default function TranscriptPanel({
         });
     };
 
-    const getInitials = (name: string) => {
-        return name.charAt(0).toUpperCase();
-    };
-
     if (!isOpen) return null;
 
     return (
@@ -213,19 +209,13 @@ export default function TranscriptPanel({
                                         <div className={`flex items-center gap-2 mb-2 ${isCurrentUser ? 'justify-end' : ''}`}>
                                             {!isCurrentUser && (
                                                 <div className={`w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br ${gradient} flex items-center justify-center ring-1 ring-white/20`}>
-                                                    {entry.speaker.profileImg ? (
-                                                        <Image
-                                                            src={entry.speaker.profileImg}
-                                                            alt={entry.speaker.name}
-                                                            width={32}
-                                                            height={32}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-white text-xs font-bold">
-                                                            {getInitials(entry.speaker.name)}
-                                                        </span>
-                                                    )}
+                                                    <Image
+                                                        src={entry.speaker.profileImg || `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.speaker.name)}&background=6366f1&color=fff&size=32`}
+                                                        alt={entry.speaker.name}
+                                                        width={32}
+                                                        height={32}
+                                                        className="w-full h-full object-cover"
+                                                    />
                                                 </div>
                                             )}
                                             <div className={`flex items-center gap-2 ${isCurrentUser ? 'flex-row-reverse' : ''}`}>
@@ -274,12 +264,6 @@ export default function TranscriptPanel({
                                             </div>
                                         )}
 
-                                        {/* 실시간 인디케이터 */}
-                                        {!entry.isFinal && (
-                                            <div className="absolute -right-1 -top-1">
-                                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50" />
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             );

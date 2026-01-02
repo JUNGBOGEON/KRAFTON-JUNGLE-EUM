@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"math/rand"
 	"time"
 
@@ -283,7 +284,9 @@ func (h *ChatHandler) GetChatRooms(c *fiber.Ctx) error {
 			Type:        "CHAT_ROOM",
 			Status:      "ACTIVE",
 		}
-		h.db.Create(&defaultRoom)
+		if err := h.db.Create(&defaultRoom).Error; err != nil {
+			log.Printf("warning: failed to create default chat room for workspace %d: %v", workspaceID, err)
+		}
 	}
 
 	// 채팅방 목록 조회

@@ -56,14 +56,17 @@ class Config:
     CHUNK_DURATION_MS = 1500  # 1.5초 청크
     CHUNK_BYTES = int(BYTES_PER_SECOND * CHUNK_DURATION_MS / 1000)  # 48000 bytes
 
-    # 실시간 번역을 위해 최대 버퍼 시간을 3초로 제한
-    SENTENCE_MAX_DURATION_MS = 3000  # 문장 최대 대기 시간 (3초)
-    SENTENCE_MAX_BYTES = int(BYTES_PER_SECOND * SENTENCE_MAX_DURATION_MS / 1000)  # 96000 bytes
+    # 실시간 번역: 문장 완성도 vs 속도 밸런스
+    SENTENCE_MAX_DURATION_MS = 2500  # 문장 최대 대기 시간 (2.5초 - 문장 완성을 위해)
+    SENTENCE_MAX_BYTES = int(BYTES_PER_SECOND * SENTENCE_MAX_DURATION_MS / 1000)  # 80000 bytes
 
-    # VAD settings
-    SILENCE_THRESHOLD_RMS = 30  # RMS 침묵 임계값 (낮출수록 더 민감하게 음성 감지)
-    SILENCE_DURATION_MS = 500   # 문장 끝 감지용 침묵 지속 시간 (500ms로 단축)
+    # VAD settings - 침묵 감지로 빠르게 전송
+    SILENCE_THRESHOLD_RMS = 30  # RMS 침묵 임계값
+    SILENCE_DURATION_MS = 350   # 문장 끝 감지용 침묵 지속 시간 (350ms)
     SILENCE_FRAMES = int(SILENCE_DURATION_MS / 100)  # 100ms 프레임 기준
+
+    # Translation backend: "aws" (fast) or "qwen" (local LLM)
+    TRANSLATION_BACKEND = os.getenv("TRANSLATION_BACKEND", "aws")  # AWS Translate가 기본값 (10x 더 빠름)
 
     # Amazon Transcribe Language Codes
     TRANSCRIBE_LANG_CODES = {
@@ -79,6 +82,22 @@ class Config:
         "ar": "ar-SA",    # Arabic (Saudi Arabia)
         "hi": "hi-IN",    # Hindi
         "tr": "tr-TR",    # Turkish
+    }
+
+    # AWS Translate Language Codes (ISO 639-1)
+    AWS_TRANSLATE_LANG_CODES = {
+        "ko": "ko",    # Korean
+        "en": "en",    # English
+        "ja": "ja",    # Japanese
+        "zh": "zh",    # Chinese (Simplified)
+        "es": "es",    # Spanish
+        "fr": "fr",    # French
+        "de": "de",    # German
+        "pt": "pt",    # Portuguese
+        "ru": "ru",    # Russian
+        "ar": "ar",    # Arabic
+        "hi": "hi",    # Hindi
+        "tr": "tr",    # Turkish
     }
 
     # Qwen3 Translation Model (Alibaba)
@@ -110,10 +129,10 @@ class Config:
     GRPC_PORT = int(os.getenv("GRPC_PORT", 50051))
     MAX_WORKERS = int(os.getenv("MAX_WORKERS", 32))  # 동시 세션 처리를 위해 증가
 
-    # Timeouts (seconds)
-    STT_TIMEOUT = 30  # Amazon Transcribe 타임아웃
-    TRANSLATION_TIMEOUT = 15  # 번역 타임아웃
-    TTS_TIMEOUT = 10  # TTS 타임아웃
+    # Timeouts (seconds) - 실시간 응답을 위해 짧게 설정
+    STT_TIMEOUT = 15  # Amazon Transcribe 타임아웃 (15초로 단축)
+    TRANSLATION_TIMEOUT = 10  # 번역 타임아웃 (10초로 단축)
+    TTS_TIMEOUT = 8  # TTS 타임아웃 (8초로 단축)
 
     # Filler words to skip TTS (common interjections/fillers)
     FILLER_WORDS = {
@@ -222,7 +241,7 @@ class VADProcessor:
 
         # 설정
         self.min_speech_frames = 3    # 최소 음성 프레임 (노이즈 필터링)
-        self.max_silence_frames = int(Config.SILENCE_DURATION_MS / self.frame_duration_ms)  # 700ms / 30ms = 23 프레임
+        self.max_silence_frames = int(Config.SILENCE_DURATION_MS / self.frame_duration_ms)  # 400ms / 30ms = 13 프레임
 
     def calculate_rms(self, audio_bytes: bytes) -> float:
         """int16 오디오 데이터의 RMS 계산"""
@@ -551,6 +570,11 @@ class ModelManager:
         self.polly_client = boto3.client("polly", region_name=Config.AWS_REGION)
         print("      ✓ Polly initialized")
 
+        # Translation: AWS Translate (빠른 번역용)
+        print("[3.5/3] Initializing AWS Translate...")
+        self.translate_client = boto3.client("translate", region_name=Config.AWS_REGION)
+        print(f"      ✓ AWS Translate initialized (backend: {Config.TRANSLATION_BACKEND})")
+
         print("=" * 60)
         print("All models loaded successfully!")
         print("=" * 60)
@@ -573,14 +597,23 @@ class ModelManager:
 
         warmup_start = time.time()
 
-        # 1. Qwen3 Translation 워밍업
-        print("[Warmup] Translation model (Qwen3)...")
-        try:
-            warmup_text = "안녕하세요"
-            _ = self.translate(warmup_text, "ko", "en")
-            print("         ✓ Translation warmup complete")
-        except Exception as e:
-            print(f"         ⚠ Translation warmup failed: {e}")
+        # 1. Translation 워밍업
+        if Config.TRANSLATION_BACKEND == "aws":
+            print("[Warmup] AWS Translate...")
+            try:
+                warmup_text = "안녕하세요"
+                _ = self._translate_aws(warmup_text, "ko", "en")
+                print("         ✓ AWS Translate warmup complete")
+            except Exception as e:
+                print(f"         ⚠ AWS Translate warmup failed: {e}")
+        else:
+            print("[Warmup] Translation model (Qwen3)...")
+            try:
+                warmup_text = "안녕하세요"
+                _ = self._translate_qwen(warmup_text, "ko", "en")
+                print("         ✓ Qwen3 warmup complete")
+            except Exception as e:
+                print(f"         ⚠ Qwen3 warmup failed: {e}")
 
         # 2. Amazon Polly TTS 워밍업
         print("[Warmup] TTS model (Polly)...")
@@ -647,7 +680,7 @@ class ModelManager:
             )
 
             if result_text:
-                print(f"[STT] Final result: \"{result_text}\" (confidence={confidence:.2f})")
+                print(f"[STT] Final result: {len(result_text)} chars (confidence={confidence:.2f})")
             else:
                 print(f"[STT] No speech detected")
 
@@ -690,7 +723,7 @@ class ModelManager:
                             conf = alt.confidence if hasattr(alt, 'confidence') and alt.confidence else 0.95
                             if text:
                                 self.transcripts.append((text, conf))
-                                print(f"[Transcribe] Final: \"{text}\" (conf={conf:.2f})")
+                                print(f"[Transcribe] Final: {len(text)} chars (conf={conf:.2f})")
 
         try:
             # 스트리밍 세션 시작
@@ -732,7 +765,7 @@ class ModelManager:
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         """
-        텍스트 번역 (Qwen3-8B)
+        텍스트 번역 (AWS Translate 또는 Qwen3-8B)
 
         Args:
             text: 원본 텍스트
@@ -749,13 +782,62 @@ class ModelManager:
         if source_lang == target_lang:
             return text
 
+        # 번역 백엔드 선택
+        if Config.TRANSLATION_BACKEND == "aws":
+            return self._translate_aws(text, source_lang, target_lang)
+        else:
+            return self._translate_qwen(text, source_lang, target_lang)
+
+    def _translate_aws(self, text: str, source_lang: str, target_lang: str) -> str:
+        """
+        AWS Translate를 사용한 빠른 번역 (50-100ms)
+        """
+        try:
+            # AWS Translate 언어 코드 변환
+            aws_source = Config.AWS_TRANSLATE_LANG_CODES.get(source_lang, source_lang)
+            aws_target = Config.AWS_TRANSLATE_LANG_CODES.get(target_lang, target_lang)
+
+            start_time = time.time()
+
+            response = self.translate_client.translate_text(
+                Text=text,
+                SourceLanguageCode=aws_source,
+                TargetLanguageCode=aws_target,
+            )
+
+            result = response['TranslatedText']
+            elapsed = (time.time() - start_time) * 1000
+
+            print(f"[AWS Translate] {source_lang}→{target_lang}: {len(text)} chars → {len(result)} chars ({elapsed:.0f}ms)")
+            return result
+
+        except Exception as e:
+            print(f"[AWS Translate Error] {e}, falling back to Qwen")
+            # AWS 실패 시 Qwen으로 폴백
+            return self._translate_qwen(text, source_lang, target_lang)
+
+    def _translate_qwen(self, text: str, source_lang: str, target_lang: str) -> str:
+        """
+        Qwen3-8B를 사용한 로컬 번역 (느리지만 오프라인 가능)
+        """
         # 언어 이름 가져오기
         source_name = Config.LANGUAGE_NAMES.get(source_lang, "English")
         target_name = Config.LANGUAGE_NAMES.get(target_lang, "English")
 
         try:
-            # 번역 프롬프트 구성 (간결하고 직접적)
-            prompt = f"Translate the following {source_name} text to {target_name}. Output only the translation, nothing else.\n\n{text}"
+            start_time = time.time()
+
+            # 번역 프롬프트 구성 (명확하고 직접적, 이중 번역 방지)
+            prompt = f"""Translate this {source_name} text to {target_name}.
+Rules:
+- Output ONLY the {target_name} translation
+- Do NOT include the original text
+- Do NOT include any other language
+- Do NOT add explanations or notes
+
+Text: {text}
+
+{target_name} translation:"""
 
             # Qwen3 chat 형식으로 메시지 구성
             messages = [
@@ -797,33 +879,73 @@ class ModelManager:
             # 결과 정제 (불필요한 접두어 제거)
             result = self._clean_translation(result)
 
-            print(f"[Translation] {source_lang}→{target_lang}: \"{text}\" → \"{result}\"")
+            elapsed = (time.time() - start_time) * 1000
+            print(f"[Qwen Translation] {source_lang}→{target_lang}: {len(text)} chars → {len(result)} chars ({elapsed:.0f}ms)")
             return result
 
         except Exception as e:
             import traceback
-            print(f"[Translation Error] {e}")
-            print(f"[Translation Traceback] {traceback.format_exc()}")
+            print(f"[Qwen Translation Error] {e}")
+            print(f"[Qwen Translation Traceback] {traceback.format_exc()}")
             return ""
 
-    def _clean_translation(self, text: str) -> str:
-        """번역 결과에서 불필요한 접두어 제거"""
-        # 흔한 접두어 패턴 제거
+    def _clean_translation(self, text: str, target_lang: str = "") -> str:
+        """
+        번역 결과에서 불필요한 접두어 및 이중 번역 제거
+
+        Qwen3가 때때로 여러 언어로 번역하거나 설명을 추가하는 경우 처리
+        """
+        result = text.strip()
+
+        # 1. 흔한 접두어 패턴 제거
         prefixes = [
             "Here is the translation:",
             "Here's the translation:",
             "Translation:",
             "The translation is:",
             "Translated text:",
+            "In English:",
+            "In Korean:",
+            "In Japanese:",
+            "In Chinese:",
         ]
-        result = text.strip()
         for prefix in prefixes:
             if result.lower().startswith(prefix.lower()):
                 result = result[len(prefix):].strip()
-        # 따옴표 제거
+
+        # 2. 이중 번역 방지: 여러 줄이 있으면 첫 번째 의미있는 줄만 사용
+        lines = [line.strip() for line in result.split('\n') if line.strip()]
+        if len(lines) > 1:
+            # 첫 번째 줄이 너무 짧으면 (라벨일 수 있음) 두 번째 줄 사용
+            if len(lines[0]) < 5 and len(lines) > 1:
+                result = lines[1]
+            else:
+                result = lines[0]
+        elif lines:
+            result = lines[0]
+
+        # 3. 따옴표 제거
         if (result.startswith('"') and result.endswith('"')) or \
            (result.startswith("'") and result.endswith("'")):
             result = result[1:-1]
+
+        # 4. 괄호로 둘러싸인 설명 제거 (예: "(Translation: ...)" 또는 "(English)")
+        import re
+        result = re.sub(r'\s*\([^)]*translation[^)]*\)\s*', '', result, flags=re.IGNORECASE)
+        result = re.sub(r'\s*\([^)]*english[^)]*\)\s*', '', result, flags=re.IGNORECASE)
+        result = re.sub(r'\s*\([^)]*korean[^)]*\)\s*', '', result, flags=re.IGNORECASE)
+
+        # 5. 이중 언어 출력 감지 및 제거 (예: "한국어 → English")
+        arrow_patterns = [' → ', ' -> ', ' - ', ' / ']
+        for arrow in arrow_patterns:
+            if arrow in result:
+                parts = result.split(arrow)
+                if len(parts) == 2:
+                    # 타겟 언어에 맞는 부분 선택
+                    # 기본적으로 첫 번째 부분 사용 (보통 타겟 언어가 먼저 옴)
+                    result = parts[0].strip()
+                    break
+
         return result.strip()
 
     def synthesize_speech(self, text: str, target_lang: str) -> Tuple[bytes, int]:
@@ -1108,13 +1230,13 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
             print(f"[STT] No text detected from audio")
             return
 
-        print(f"[STT] Result: \"{original_text}\" (confidence: {confidence:.2f})")
+        print(f"[STT] Result: {len(original_text)} chars (confidence: {confidence:.2f})")
 
         # Check if text is a filler word (skip translation/TTS but still send transcript)
         is_filler = original_text.lower().strip() in Config.FILLER_WORDS or \
                     original_text.strip() in Config.FILLER_WORDS
         if is_filler:
-            print(f"[Filter] Skipping filler word: \"{original_text}\"")
+            print(f"[Filter] Skipping filler word")
             # Still send transcript for chat log, but skip translation/TTS
             transcript_id = str(uuid.uuid4())[:8]
             yield conversation_pb2.ChatResponse(
@@ -1148,7 +1270,7 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
 
         # Skip translation for very short texts (1 character)
         if len(original_text.strip()) <= 1:
-            print(f"[Translation] Skipping very short text: \"{original_text}\"")
+            print(f"[Translation] Skipping very short text: {len(original_text)} chars")
             # Still send transcript without translation
             yield conversation_pb2.ChatResponse(
                 session_id=state.session_id,
@@ -1185,7 +1307,7 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
                         target_participant_ids=target_participants
                     )
                 )
-                print(f"    → {target_lang}: {translated_text}")
+                print(f"    → {target_lang}: {len(translated_text)} chars")
 
         # 1. Transcript 결과 전송
         yield conversation_pb2.ChatResponse(
@@ -1216,16 +1338,16 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
 
             # Skip TTS for very short translations (filler-like)
             if len(translated_text.strip()) < Config.MIN_TTS_TEXT_LENGTH:
-                print(f"[TTS] Skipping short text: \"{translated_text}\" (len={len(translated_text)})")
+                print(f"[TTS] Skipping short text: {len(translated_text)} chars")
                 continue
 
             # Skip TTS if translated text is also a filler word
             if translated_text.lower().strip() in Config.FILLER_WORDS or \
                translated_text.strip() in Config.FILLER_WORDS:
-                print(f"[TTS] Skipping filler translation: \"{translated_text}\"")
+                print(f"[TTS] Skipping filler translation")
                 continue
 
-            print(f"[TTS] Synthesizing: \"{translated_text}\" (lang={target_lang})")
+            print(f"[TTS] Synthesizing: {len(translated_text)} chars (lang={target_lang})")
             audio_data, duration_ms = self.models.synthesize_speech(translated_text, target_lang)
 
             if audio_data:
@@ -1245,7 +1367,7 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
                     )
                 )
             else:
-                print(f"[TTS] Failed to generate audio for: \"{translated_text}\"")
+                print(f"[TTS] Failed to generate audio: {len(translated_text)} chars (lang={target_lang})")
 
     def UpdateParticipantSettings(self, request, context):
         """참가자 설정 업데이트"""
@@ -1292,22 +1414,22 @@ def serve():
     server.add_insecure_port(f'0.0.0.0:{Config.GRPC_PORT}')
     server.start()
 
-    qwen_name = Config.QWEN_MODEL.split('/')[-1]
+    translation_backend = "AWS Translate (FAST)" if Config.TRANSLATION_BACKEND == "aws" else Config.QWEN_MODEL.split('/')[-1]
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
-║  Python AI Server v9                                         ║
+║  Python AI Server v10 - Real-time Translation                ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  gRPC Port:     {Config.GRPC_PORT}                                        ║
 ║  Region:        {Config.AWS_REGION}                              ║
 ║  Device:        {Config.GPU_DEVICE.upper()}                                       ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  STT:           Amazon Transcribe Streaming                  ║
-║  Translation:   {qwen_name}                                   ║
+║  Translation:   {translation_backend:<41} ║
 ║  TTS:           Amazon Polly                                 ║
 ╠══════════════════════════════════════════════════════════════╣
-║  Buffering Strategies:                                       ║
-║    - CHUNK (1.5s): Same word order (ko↔ja, en↔zh)            ║
-║    - SENTENCE:     Different word order (ko↔en)              ║
+║  Real-time Settings:                                         ║
+║    - Max buffer: {Config.SENTENCE_MAX_DURATION_MS}ms                                     ║
+║    - Silence detection: {Config.SILENCE_DURATION_MS}ms                              ║
 ╚══════════════════════════════════════════════════════════════╝
 """)
 

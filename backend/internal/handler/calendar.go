@@ -276,7 +276,11 @@ func (h *CalendarHandler) UpdateEvent(c *fiber.Ctx) error {
 	event.IsAllDay = req.IsAllDay
 	event.Color = req.Color
 
-	h.db.Save(&event)
+	if err := h.db.Save(&event).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update event",
+		})
+	}
 	h.db.Preload("Creator").Preload("Attendees.User").First(&event, event.ID)
 
 	return c.JSON(h.toEventResponse(&event))
@@ -369,7 +373,11 @@ func (h *CalendarHandler) UpdateAttendeeStatus(c *fiber.Ctx) error {
 	}
 
 	attendee.Status = req.Status
-	h.db.Save(&attendee)
+	if err := h.db.Save(&attendee).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to update attendee status",
+		})
+	}
 
 	return c.JSON(fiber.Map{
 		"message": "status updated",

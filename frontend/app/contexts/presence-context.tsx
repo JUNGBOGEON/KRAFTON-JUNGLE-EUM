@@ -10,8 +10,8 @@ export interface PresenceData {
     user_id: number;
     status: string;
     last_heartbeat: number;
-    status_message?: string;
-    status_message_emoji?: string;
+    custom_status_text?: string;
+    custom_status_emoji?: string;
 }
 
 interface PresenceContextType {
@@ -141,8 +141,8 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
                         user_id: user.id,
                         status: prev[user.id]?.status || "online",
                         last_heartbeat: Date.now(),
-                        status_message: text,
-                        status_message_emoji: emoji
+                        custom_status_text: text,
+                        custom_status_emoji: emoji
                     }
                 }));
             }

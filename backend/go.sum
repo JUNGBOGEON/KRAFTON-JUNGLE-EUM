@@ -50,6 +50,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.16 h1:oHjJHeUy
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.16/go.mod h1:iRSNGgOYmiYwSCXxXaKb9HfOEj40+oTKn8pTxMlYkRM=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.16 h1:NSbvS17MlI2lurYgXnCOLvCFX38sBW4eiVER7+kkgsU=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.16/go.mod h1:SwT8Tmqd4sA6G1qaGdzWCJN99bUmPGHfRwwq3G5Qb+A=
+github.com/aws/aws-sdk-go-v2/service/polly v1.54.9 h1:+jPOZOiYNDfy4xgY3A+plcPNka0axxmyYcjGB35JpBQ=
+github.com/aws/aws-sdk-go-v2/service/polly v1.54.9/go.mod h1:hDVxcbibMNK9p8yUWjDSMb5BGPSTHzHl53VxqM6pGfA=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.95.0 h1:MIWra+MSq53CFaXXAywB2qg9YvVZifkk6vEGl/1Qor0=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.95.0/go.mod h1:79S2BdqCJpScXZA2y+cpZuocWsjGjJINyXnOsf5DTz8=
 github.com/aws/aws-sdk-go-v2/service/signin v1.0.4 h1:HpI7aMmJ+mm1wkSHIA2t5EaFFv5EFYXePW30p1EIrbQ=
@@ -60,6 +62,10 @@ github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.12 h1:AHDr0DaHIAo8c9t1emrzAlV
 github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.12/go.mod h1:GQ73XawFFiWxyWXMHWfhiomvP3tXtdNar/fi8z18sx0=
 github.com/aws/aws-sdk-go-v2/service/sts v1.41.5 h1:SciGFVNZ4mHdm7gpD1dgZYnCuVdX1s+lFTg4+4DOy70=
 github.com/aws/aws-sdk-go-v2/service/sts v1.41.5/go.mod h1:iW40X4QBmUxdP+fZNOpfmkdMZqsovezbAeO+Ubiv2pk=
+github.com/aws/aws-sdk-go-v2/service/transcribestreaming v1.33.4 h1:9cGKvNoTmzA0nY1t4btJ0pongZJr29TVr3+aVm7YvuU=
+github.com/aws/aws-sdk-go-v2/service/transcribestreaming v1.33.4/go.mod h1:JX9jx5vpnRZk6jKFz8JaJUmNuVuPdCdjgP7DOhE4GeE=
+github.com/aws/aws-sdk-go-v2/service/translate v1.33.16 h1:LygT/Y4PAD/WN7Ha9t8P3uMH94uywxa8ELlWyN2X0gw=
+github.com/aws/aws-sdk-go-v2/service/translate v1.33.16/go.mod h1:I2lbH1mDswpWuT2IlpGz4OOJumjkDXu4KDw+SHTjfIk=
 github.com/aws/smithy-go v1.24.0 h1:LpilSUItNPFr1eY85RYgTIg5eIEPtvFbskaFcmmIUnk=
 github.com/aws/smithy-go v1.24.0/go.mod h1:LEj2LM3rBRQJxPZTB4KuzZkaZYnZPnvgIhb4pu07mx0=
 github.com/benbjohnson/clock v1.3.5 h1:VvXlSJBzZpA/zum6Sj74hxwYI2DIxRWuNIoXAzHZz5o=

@@ -35,7 +35,7 @@ const subtitleStore = {
 
     subscribe(listener: () => void) {
         this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
+        return () => { this.listeners.delete(listener); };
     },
 
     notify() {
@@ -103,38 +103,71 @@ function SubtitleItem({
     showTranslation: boolean;
     onComplete: () => void;
 }) {
-    const [displayText, setDisplayText] = useState('');
-    const [isTyping, setIsTyping] = useState(true);
-    const typingRef = useRef<NodeJS.Timeout | null>(null);
+    const [displayText, setDisplayText] = useState(entry.text);
+    const [isTyping, setIsTyping] = useState(false);
     const exitRef = useRef<NodeJS.Timeout | null>(null);
+    const animationRef = useRef<number | null>(null);
+    const targetTextRef = useRef(entry.text);
+    const currentIndexRef = useRef(0);
 
-    // 타이핑 애니메이션
+    // requestAnimationFrame 기반 부드러운 타이핑 애니메이션
     useEffect(() => {
-        const text = entry.text;
-        let index = 0;
+        const newText = entry.text;
+        const prevDisplayed = displayText;
+        targetTextRef.current = newText;
 
-        const type = () => {
-            if (index <= text.length) {
-                setDisplayText(text.slice(0, index));
-                index++;
-                typingRef.current = setTimeout(type, 25);
+        // 기존 타이머/애니메이션 취소
+        if (exitRef.current) clearTimeout(exitRef.current);
+        if (animationRef.current) cancelAnimationFrame(animationRef.current);
+
+        // 증분 업데이트인지 확인
+        if (newText.startsWith(prevDisplayed) && prevDisplayed.length > 0) {
+            // 이전 텍스트 유지, 새 부분만 타이핑
+            currentIndexRef.current = prevDisplayed.length;
+        } else {
+            // 완전히 새로운 텍스트
+            currentIndexRef.current = 0;
+            setDisplayText('');
+        }
+
+        setIsTyping(true);
+
+        let lastTime = 0;
+        const CHARS_PER_FRAME = 2; // 프레임당 2글자 (더 빠르게)
+        const MIN_INTERVAL = 16; // 최소 16ms (60fps)
+
+        const animate = (timestamp: number) => {
+            if (timestamp - lastTime >= MIN_INTERVAL) {
+                lastTime = timestamp;
+                const target = targetTextRef.current;
+
+                if (currentIndexRef.current < target.length) {
+                    // 한 번에 여러 글자 추가 (부드럽게)
+                    currentIndexRef.current = Math.min(
+                        currentIndexRef.current + CHARS_PER_FRAME,
+                        target.length
+                    );
+                    setDisplayText(target.slice(0, currentIndexRef.current));
+                    animationRef.current = requestAnimationFrame(animate);
+                } else {
+                    setIsTyping(false);
+                }
             } else {
-                setIsTyping(false);
+                animationRef.current = requestAnimationFrame(animate);
             }
         };
 
-        type();
+        animationRef.current = requestAnimationFrame(animate);
 
-        // 5초 후 자동 제거
-        exitRef.current = setTimeout(onComplete, 5000);
+        // 3초 후 자동 제거 (더 빠르게)
+        exitRef.current = setTimeout(onComplete, 3000);
 
         return () => {
-            if (typingRef.current) clearTimeout(typingRef.current);
+            if (animationRef.current) cancelAnimationFrame(animationRef.current);
             if (exitRef.current) clearTimeout(exitRef.current);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entry.text, onComplete]);
-
-    const getInitials = (name: string) => name.charAt(0).toUpperCase();
 
     return (
         <div
@@ -163,15 +196,15 @@ function SubtitleItem({
                             className="w-full h-full object-cover"
                         />
                     ) : (
-                        <span className="text-white text-sm font-semibold">
-                            {getInitials(entry.speaker.name)}
-                        </span>
+                        <Image
+                            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(entry.speaker.name)}&background=6366f1&color=fff&size=32`}
+                            alt={entry.speaker.name}
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-cover"
+                        />
                     )}
                 </div>
-                {/* 말하는 중 인디케이터 */}
-                {isTyping && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full border border-black/80 animate-pulse" />
-                )}
             </div>
 
             {/* 이름 + 텍스트 */}
@@ -189,13 +222,13 @@ function SubtitleItem({
                             <span className="text-white/40 text-xs">→</span>
                             <span className="text-white text-base font-semibold">
                                 {displayText}
-                                {isTyping && <span className="animate-cursor-blink">|</span>}
+                                {isTyping && <span className="animate-cursor-blink ml-0.5 text-white/60">|</span>}
                             </span>
                         </div>
                     ) : (
                         <span className="text-white text-base font-semibold">
                             {displayText}
-                            {isTyping && <span className="animate-cursor-blink ml-0.5">|</span>}
+                            {isTyping && <span className="animate-cursor-blink ml-0.5 text-white/60">|</span>}
                         </span>
                     )}
                 </div>
@@ -218,7 +251,7 @@ export default function SubtitleOverlay({
         const unsubscribe = subtitleStore.subscribe(() => {
             setEntries(subtitleStore.getAll());
         });
-        return unsubscribe;
+        return () => { unsubscribe(); };
     }, []);
 
     // 새 자막 추가
@@ -229,10 +262,10 @@ export default function SubtitleOverlay({
                 processedRef.current.set(key, text);
                 subtitleStore.addOrUpdate(speaker, text, originalText || undefined);
 
-                // 10초 후 캐시 정리
+                // 5초 후 캐시 정리 (자막 표시 시간에 맞춤)
                 setTimeout(() => {
                     processedRef.current.delete(key);
-                }, 10000);
+                }, 5000);
             }
         }
     }, [text, originalText, speaker]);
@@ -280,7 +313,7 @@ export default function SubtitleOverlay({
                 }
 
                 .animate-cursor-blink {
-                    animation: cursor-blink 0.6s ease-in-out infinite;
+                    animation: cursor-blink 0.8s ease-in-out infinite;
                 }
             `}</style>
         </div>

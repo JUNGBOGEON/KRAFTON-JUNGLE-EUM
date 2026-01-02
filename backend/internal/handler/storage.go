@@ -501,7 +501,11 @@ func (h *StorageHandler) RenameFile(c *fiber.Ctx) error {
 	}
 
 	file.Name = sanitizeString(req.Name)
-	h.db.Save(&file)
+	if err := h.db.Save(&file).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "failed to rename file",
+		})
+	}
 	h.db.Preload("Uploader").First(&file, file.ID)
 
 	return c.JSON(h.toFileResponse(&file))

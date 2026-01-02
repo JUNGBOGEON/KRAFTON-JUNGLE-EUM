@@ -10,15 +10,15 @@ import { useAudioDucking } from "./useAudioDucking";
 const WS_BASE_URL = process.env.NEXT_PUBLIC_VOICE_WS_URL || 'ws://localhost:8080/ws/audio';
 const SAMPLE_RATE = Number(process.env.NEXT_PUBLIC_AUDIO_SAMPLE_RATE) || 16000;
 
-// 하이브리드 전송 설정: 침묵 감지 + 주기적 강제 전송 (오디오 손실 방지)
+// 실시간 번역 설정: 문장 완성도 vs 속도 밸런스
 const MIN_SAMPLES_TO_SEND = 0;  // 모든 오디오 전송 (스킵 없음)
-const MAX_BUFFER_DURATION_MS = 10000;  // 최대 10초 버퍼 (안전장치)
+const MAX_BUFFER_DURATION_MS = 5000;  // 최대 5초 버퍼 (안전장치)
 const MAX_BUFFER_SAMPLES = SAMPLE_RATE * (MAX_BUFFER_DURATION_MS / 1000);
-const SILENCE_THRESHOLD = 0.005;  // 침묵 감지 RMS 임계값 (매우 민감하게)
-const SPEECH_THRESHOLD = 0.008;  // 발화 시작 감지 RMS 임계값 (낮게 설정)
-const SILENCE_DURATION_MS = 600;  // 600ms 침묵 = 발화 종료
-const FORCED_SEND_INTERVAL_MS = 3000;  // 3초마다 강제 전송 (오디오 손실 방지)
-const ANALYSIS_INTERVAL_MS = 50;  // 50ms마다 버퍼 분석
+const SILENCE_THRESHOLD = 0.004;  // 침묵 감지 RMS 임계값 (민감하게)
+const SPEECH_THRESHOLD = 0.006;  // 발화 시작 감지 RMS 임계값
+const SILENCE_DURATION_MS = 350;  // 350ms 침묵 = 발화 종료 (침묵 감지로 빠르게)
+const FORCED_SEND_INTERVAL_MS = 2500;  // 2.5초마다 강제 전송 (문장 완성 대기)
+const ANALYSIS_INTERVAL_MS = 30;  // 30ms마다 버퍼 분석
 
 export interface RemoteTranscriptData extends TranscriptData {
     participantId: string;
@@ -27,10 +27,12 @@ export interface RemoteTranscriptData extends TranscriptData {
 }
 
 interface UseRemoteParticipantTranslationOptions {
+    roomId: string;                // Room ID for grouping
     enabled: boolean;              // TTS 재생 여부 (번역 모드)
     sttEnabled?: boolean;          // STT 항상 활성화 여부 (기본: true)
     sourceLanguage?: TargetLanguage;  // 발화자가 말하는 언어 (기본: 'ko')
     targetLanguage?: TargetLanguage;  // 듣고 싶은 언어 (번역 대상)
+    listenerId?: string;           // 리스너 ID (로컬 사용자)
     autoPlayTTS?: boolean;
     onTranscript?: (data: RemoteTranscriptData) => void;
     onError?: (error: Error) => void;
@@ -95,7 +97,8 @@ function getParticipantProfileImg(participant: RemoteParticipant | LocalParticip
 }
 
 // Parse participant metadata to extract sourceLanguage (the language they speak)
-function getParticipantSourceLanguage(participant: RemoteParticipant | LocalParticipant, fallback: TargetLanguage = 'ko'): TargetLanguage {
+// Returns null if metadata is not available (to distinguish from fallback)
+function getParticipantSourceLanguage(participant: RemoteParticipant | LocalParticipant): TargetLanguage | null {
     try {
         if (participant.metadata) {
             const metadata = JSON.parse(participant.metadata);
@@ -108,7 +111,7 @@ function getParticipantSourceLanguage(participant: RemoteParticipant | LocalPart
     } catch {
         // Metadata is not valid JSON
     }
-    return fallback;
+    return null; // No metadata available - caller should decide how to handle
 }
 
 // RMS 계산 (음성 활동 감지용)
@@ -143,10 +146,12 @@ function resample(inputBuffer: Float32Array, inputSampleRate: number, outputSamp
 }
 
 export function useRemoteParticipantTranslation({
+    roomId,
     enabled,
     sttEnabled = true,  // STT는 기본적으로 항상 활성화
     sourceLanguage = 'ko',  // 발화자가 말하는 언어 (기본: 한국어)
     targetLanguage = 'en',  // 듣고 싶은 언어 (기본: 영어)
+    listenerId,
     autoPlayTTS = true,
     onTranscript,
     onError,
@@ -167,6 +172,8 @@ export function useRemoteParticipantTranslation({
     const creatingStreamsRef = useRef<Set<string>>(new Set());  // 중복 생성 방지용 락
     const enabledRef = useRef(enabled);
     const sttEnabledRef = useRef(sttEnabled);
+    const roomIdRef = useRef(roomId);
+    const listenerIdRef = useRef(listenerId);
     const sourceLanguageRef = useRef(sourceLanguage);
     const targetLanguageRef = useRef(targetLanguage);
     const autoPlayTTSRef = useRef(autoPlayTTS);
@@ -182,7 +189,7 @@ export function useRemoteParticipantTranslation({
     const unduckAllRef = useRef(unduckAll);
 
     // TTS playback with ducking callbacks
-    const { queueAudio, stopAudio } = useAudioPlayback({
+    const { queueAudio, stopAllAudio } = useAudioPlayback({
         onPlayStart: (participantId) => {
             if (participantId) {
                 console.log(`[RemoteTranslation] TTS started for ${participantId}, ducking...`);
@@ -200,12 +207,14 @@ export function useRemoteParticipantTranslation({
         },
     });
     const queueAudioRef = useRef(queueAudio);
-    const stopAudioRef = useRef(stopAudio);
+    const stopAllAudioRef = useRef(stopAllAudio);
 
     // Keep all refs updated
     useEffect(() => {
         enabledRef.current = enabled;
         sttEnabledRef.current = sttEnabled;
+        roomIdRef.current = roomId;
+        listenerIdRef.current = listenerId;
         sourceLanguageRef.current = sourceLanguage;
         targetLanguageRef.current = targetLanguage;
         autoPlayTTSRef.current = autoPlayTTS;
@@ -215,8 +224,8 @@ export function useRemoteParticipantTranslation({
         unduckParticipantRef.current = unduckParticipant;
         unduckAllRef.current = unduckAll;
         queueAudioRef.current = queueAudio;
-        stopAudioRef.current = stopAudio;
-    }, [enabled, sttEnabled, sourceLanguage, targetLanguage, autoPlayTTS, onTranscript, onError, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAudio]);
+        stopAllAudioRef.current = stopAllAudio;
+    }, [enabled, sttEnabled, roomId, listenerId, sourceLanguage, targetLanguage, autoPlayTTS, onTranscript, onError, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAllAudio]);
 
     // Update local participant identity ref
     useEffect(() => {
@@ -243,9 +252,24 @@ export function useRemoteParticipantTranslation({
         [audioTracks]
     );
 
+    // Memoize remote participant metadata to detect language changes
+    // This triggers stream re-creation when a participant updates their sourceLanguage
+    const participantMetadataInfo = useMemo(
+        () => participants
+            .filter(p => p.identity !== localParticipant?.identity)
+            .map(p => {
+                const sourceLang = getParticipantSourceLanguage(p);
+                return `${p.identity}:${sourceLang || 'none'}`;
+            })
+            .sort()
+            .join(','),
+        [participants, localParticipant?.identity]
+    );
+
     // Track previous language settings to detect changes
     const prevSourceLanguageRef = useRef(sourceLanguage);
     const prevTargetLanguageRef = useRef(targetLanguage);
+    const prevParticipantMetadataRef = useRef(participantMetadataInfo);
 
     // Helper functions using refs (not useCallback to avoid dependency issues)
     const cleanupParticipantStream = (participantId: string) => {
@@ -254,27 +278,46 @@ export function useRemoteParticipantTranslation({
 
         console.log(`[RemoteTranslation] Cleaning up stream for ${participantId}`);
 
+        // 1. 분석 인터벌 중지
         if (stream.analysisInterval) {
             clearInterval(stream.analysisInterval);
+            stream.analysisInterval = null;
         }
 
+        // 2. AudioWorklet 포트 메시지 핸들러 제거 및 연결 해제
         if (stream.workletNode) {
+            stream.workletNode.port.onmessage = null;
+            stream.workletNode.port.close();
             stream.workletNode.disconnect();
+            stream.workletNode = null;
         }
 
+        // 3. 소스 노드 연결 해제
         if (stream.sourceNode) {
             stream.sourceNode.disconnect();
+            stream.sourceNode = null;
         }
 
+        // 4. AudioContext 닫기 (모든 오디오 처리 중지)
         if (stream.audioContext && stream.audioContext.state !== 'closed') {
-            stream.audioContext.close();
+            stream.audioContext.close().catch(() => {
+                // AudioContext close 실패 무시
+            });
         }
 
-        if (stream.ws && stream.ws.readyState === WebSocket.OPEN) {
-            stream.ws.close();
+        // 5. WebSocket 닫기
+        if (stream.ws) {
+            if (stream.ws.readyState === WebSocket.OPEN || stream.ws.readyState === WebSocket.CONNECTING) {
+                stream.ws.close();
+            }
+            stream.ws = null as any;
         }
+
+        // 6. 버퍼 비우기
+        stream.audioBuffer = [];
 
         streamsRef.current.delete(participantId);
+        console.log(`[RemoteTranslation] Stream cleanup complete for ${participantId}`);
     };
 
     const cleanupAllStreams = () => {
@@ -286,7 +329,7 @@ export function useRemoteParticipantTranslation({
 
         creatingStreamsRef.current.clear();  // 모든 락 해제
         unduckAllRef.current();
-        stopAudioRef.current();
+        stopAllAudioRef.current();
         setTranscripts(new Map());
     };
 
@@ -339,19 +382,27 @@ export function useRemoteParticipantTranslation({
 
             // Handle audio data with debugging
             workletNode.port.onmessage = (event) => {
+                // 스트림이 여전히 존재하는지 확인
+                const currentStream = streamsRef.current.get(participantId);
+                if (!currentStream || !currentStream.workletNode) {
+                    return; // 스트림이 정리되었으면 무시
+                }
+
                 // 디버그 메시지 처리
                 if (event.data.debug) {
+                    // 정리된 후 메시지는 무시
+                    if (!streamsRef.current.has(participantId)) return;
                     console.log(`[AudioWorklet] ${participantId}: ${event.data.message}`);
                     return;
                 }
 
                 const { audioData, rms } = event.data;
-                if (audioData) {
+                if (audioData && currentStream.audioBuffer) {
                     // 오디오 레벨 로깅 (가끔)
                     if (Math.random() < 0.02) {  // 2% 확률로 로깅
                         console.log(`[AudioCapture] ${participantId}: buffer RMS=${rms?.toFixed(6) || 'N/A'}, samples=${audioData.length}`);
                     }
-                    stream.audioBuffer.push(new Float32Array(audioData));
+                    currentStream.audioBuffer.push(new Float32Array(audioData));
                 }
             };
 
@@ -507,19 +558,41 @@ export function useRemoteParticipantTranslation({
 
         try {
             // 원격 참가자의 sourceLanguage를 그들의 메타데이터에서 가져옴
-            // fallback으로 현재 설정된 sourceLanguage 사용
-            const remoteSourceLang = getParticipantSourceLanguage(participant, sourceLanguageRef.current);
+            const remoteSourceLangFromMetadata = getParticipantSourceLanguage(participant);
+            const myTargetLang = targetLanguageRef.current;
+
+            // 메타데이터가 없는 경우
+            if (remoteSourceLangFromMetadata === null) {
+                console.log(`[RemoteTranslation] ⚠️ ${participantId}: No sourceLanguage in metadata, using default 'ko'`);
+                console.log(`[RemoteTranslation] ${participantId}: metadata = ${participant.metadata}`);
+            }
+
+            // 메타데이터가 없으면 기본값 'ko' 사용 (한국어가 가장 흔함)
+            // 메타데이터가 있지만 내 타겟 언어와 같으면 번역 불필요
+            const remoteSourceLang = remoteSourceLangFromMetadata || 'ko';
+
+            // 같은 언어면 번역 불필요 - 스트림 생성하지 않음
+            // 단, 메타데이터가 없는 경우에는 일단 스트림 생성 (나중에 메타데이터가 업데이트될 수 있음)
+            if (remoteSourceLangFromMetadata !== null && remoteSourceLang === myTargetLang) {
+                console.log(`[RemoteTranslation] ⏭️ Skipping ${participantId}: same language (${remoteSourceLang} == ${myTargetLang})`);
+                creatingStreamsRef.current.delete(participantId);  // 락 해제
+                return;
+            }
 
             console.log(`[RemoteTranslation] Creating stream for ${participantId}`, {
                 remoteSourceLang,  // 원격 참가자가 말하는 언어
-                myTargetLang: targetLanguageRef.current,  // 내가 듣고 싶은 언어
+                remoteSourceLangFromMetadata,  // 메타데이터에서 읽은 값 (null 가능)
+                myTargetLang,  // 내가 듣고 싶은 언어
                 participantMetadata: participant.metadata,
             });
 
-            // Create WebSocket with participantId and language params
+            // Create WebSocket with roomId, listenerId, participantId and language params
+            // roomId = 방 ID (같은 방의 동일 언어 그룹을 묶기 위해)
+            // listenerId = 듣는 사람의 ID (로컬 사용자)
             // sourceLang = 원격 참가자가 말하는 언어 (그들의 메타데이터에서)
             // targetLang = 내가 듣고 싶은 언어 (번역 대상)
-            const wsUrl = `${WS_BASE_URL}?sourceLang=${remoteSourceLang}&targetLang=${targetLanguageRef.current}&participantId=${encodeURIComponent(participantId)}`;
+            const actualListenerId = listenerIdRef.current || localParticipantIdRef.current || 'unknown';
+            const wsUrl = `${WS_BASE_URL}?roomId=${encodeURIComponent(roomIdRef.current)}&listenerId=${encodeURIComponent(actualListenerId)}&sourceLang=${remoteSourceLang}&targetLang=${targetLanguageRef.current}&participantId=${encodeURIComponent(participantId)}`;
             const ws = new WebSocket(wsUrl);
             ws.binaryType = 'arraybuffer';
 
@@ -684,8 +757,42 @@ export function useRemoteParticipantTranslation({
             cleanupAllStreams();
         }
 
+        // Check if any participant's metadata (sourceLanguage) has changed
+        // This handles the case where a participant updates their language after joining
+        const metadataChanged = prevParticipantMetadataRef.current !== participantMetadataInfo;
+        if (metadataChanged && streamsRef.current.size > 0) {
+            console.log(`[RemoteTranslation] Participant metadata changed:`);
+            console.log(`  Before: ${prevParticipantMetadataRef.current}`);
+            console.log(`  After: ${participantMetadataInfo}`);
+
+            // Find which participants changed their metadata
+            const prevMap = new Map(
+                prevParticipantMetadataRef.current.split(',').filter(Boolean).map(s => {
+                    const [id, lang] = s.split(':');
+                    return [id, lang] as [string, string];
+                })
+            );
+            const currentMap = new Map(
+                participantMetadataInfo.split(',').filter(Boolean).map(s => {
+                    const [id, lang] = s.split(':');
+                    return [id, lang] as [string, string];
+                })
+            );
+
+            // Cleanup and recreate streams for participants whose language changed
+            currentMap.forEach((newLang, participantId) => {
+                const prevLang = prevMap.get(participantId);
+                if (prevLang !== newLang) {
+                    console.log(`[RemoteTranslation] ${participantId}: language changed ${prevLang} -> ${newLang}, recreating stream`);
+                    cleanupParticipantStream(participantId);
+                    // Stream will be recreated below in the "Add new participants" section
+                }
+            });
+        }
+
         prevSourceLanguageRef.current = sourceLanguage;
         prevTargetLanguageRef.current = targetLanguage;
+        prevParticipantMetadataRef.current = participantMetadataInfo;
 
         // Parse participant IDs from the memoized string
         const currentIds = participantIds ? participantIds.split(',').filter(Boolean) : [];
@@ -738,9 +845,9 @@ export function useRemoteParticipantTranslation({
                 cleanupAllStreams();
             }
         };
-    // Depend on sttEnabled, participantIds, language changes, localParticipant identity, and audio tracks
+    // Depend on sttEnabled, participantIds, language changes, localParticipant identity, audio tracks, and participant metadata
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sttEnabled, participantIds, sourceLanguage, targetLanguage, localParticipant?.identity, audioTrackInfo]);
+    }, [sttEnabled, participantIds, sourceLanguage, targetLanguage, localParticipant?.identity, audioTrackInfo, participantMetadataInfo]);
 
     // Cleanup on unmount
     useEffect(() => {
