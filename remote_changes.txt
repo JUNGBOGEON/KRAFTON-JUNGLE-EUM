@@ -1,7 +1,0 @@
-backend/internal/handler/storage.go
-backend/internal/handler/workspace.go
-backend/internal/model/constants.go
-frontend/app/lib/api.ts
-frontend/app/lib/utils.ts
-frontend/app/workspace/[id]/components/StorageSection.tsx
-frontend/package-lock.json
