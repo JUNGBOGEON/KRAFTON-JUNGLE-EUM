@@ -97,9 +97,11 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 	at := auth.NewAccessToken(h.cfg.LiveKit.APIKey, h.cfg.LiveKit.APISecret)
 
 	// Create video grant
+	canUpdateMetadata := true
 	grant := &auth.VideoGrant{
-		RoomJoin: true,
-		Room:     req.RoomName,
+		RoomJoin:             true,
+		Room:                 req.RoomName,
+		CanUpdateOwnMetadata: &canUpdateMetadata, // 참가자가 자신의 메타데이터(sourceLanguage 등) 업데이트 가능
 	}
 
 	at.AddGrant(grant).

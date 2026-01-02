@@ -332,6 +332,47 @@ func (s *Server) SetupRoutes() {
 		WriteBufferSize: s.cfg.WebSocket.WriteBufferSize,
 	}))
 
+	// WebSocket Room 기반 오디오 스트리밍 엔드포인트 (새로운 아키텍처)
+	// Room당 1 gRPC 스트림 공유로 연결 효율화 (N² → N)
+	s.app.Get("/ws/room", func(c *fiber.Ctx) error {
+		if !websocket.IsWebSocketUpgrade(c) {
+			return fiber.ErrUpgradeRequired
+		}
+
+		// Room ID (필수)
+		roomId := c.Query("roomId", "")
+		if roomId == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "roomId is required",
+			})
+		}
+		c.Locals("roomId", roomId)
+
+		// Listener ID (필수) - 듣는 사람의 identity
+		listenerId := c.Query("listenerId", "")
+		if listenerId == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "listenerId is required",
+			})
+		}
+		c.Locals("listenerId", listenerId)
+
+		// Target Language (선택, 기본값: en)
+		targetLang := c.Query("targetLang", "en")
+		switch targetLang {
+		case "ko", "en", "ja", "zh":
+			// 유효한 언어
+		default:
+			targetLang = "en"
+		}
+		c.Locals("targetLang", targetLang)
+
+		return c.Next()
+	}, websocket.New(s.handler.HandleRoomWebSocket, websocket.Config{
+		ReadBufferSize:  s.cfg.WebSocket.ReadBufferSize,
+		WriteBufferSize: s.cfg.WebSocket.WriteBufferSize,
+	}))
+
 	// WebSocket 알림 엔드포인트
 	s.app.Get("/ws/notifications", func(c *fiber.Ctx) error {
 		if !websocket.IsWebSocketUpgrade(c) {

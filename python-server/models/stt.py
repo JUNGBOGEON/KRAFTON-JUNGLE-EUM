@@ -4,6 +4,7 @@ Multi-model support: NeMo, faster-whisper, Amazon Transcribe
 """
 
 import os
+import re
 import time
 import asyncio
 import tempfile
@@ -35,10 +36,11 @@ class STTMixin:
 
     def _is_audio_artifact(self, text: str) -> bool:
         """
-        Check if the transcribed text is a non-speech audio artifact.
+        Check if the transcribed text is a non-speech audio artifact or hallucination.
 
         NOTE: We do NOT filter based on text content like "감사합니다" because
-        users might actually say those words. Only filter clear artifacts.
+        users might actually say those words. Only filter clear artifacts and
+        repetitive hallucination patterns.
         """
         if not text:
             return False
@@ -49,10 +51,47 @@ class STTMixin:
         if text_lower in Config.AUDIO_ARTIFACT_PATTERNS:
             return True
 
-        # Check for repetitive single-character patterns (e.g., "음 음 음 음 음")
+        # =====================================================
+        # Repetitive Pattern Detection (Hallucination Filter)
+        # =====================================================
         words = text_lower.split()
+
+        # 1. Single word repeated many times (e.g., "음 음 음 음 음")
         if len(words) >= 5:
-            if len(set(words)) == 1 and len(words[0]) == 1:
+            if len(set(words)) == 1:
+                return True
+
+        # 2. Two-word pattern repeated (e.g., "릴리 릴리 릴리 릴리")
+        if len(words) >= 4:
+            # Check if all words are the same
+            unique_words = set(words)
+            if len(unique_words) <= 2 and len(words) >= 6:
+                return True
+
+        # 3. Detect "X.. X.. X.." pattern (e.g., "잘.. 잘.. 잘..")
+        # Pattern: same word followed by dots, repeated
+        dot_pattern = re.findall(r'(\S+)\.\.+', text_lower)
+        if len(dot_pattern) >= 3:
+            if len(set(dot_pattern)) == 1:
+                return True
+
+        # 4. Detect repeated character sequences (e.g., "강강강강강강")
+        # If more than 60% of text is the same character repeated
+        if len(text_lower) >= 10:
+            char_counts = {}
+            for char in text_lower:
+                if char not in ' .':
+                    char_counts[char] = char_counts.get(char, 0) + 1
+            if char_counts:
+                max_count = max(char_counts.values())
+                total_chars = sum(char_counts.values())
+                if total_chars > 0 and max_count / total_chars > 0.6:
+                    return True
+
+        # 5. Very long text with very few unique characters (hallucination)
+        if len(text_lower) >= 50:
+            unique_chars = set(text_lower.replace(' ', '').replace('.', ''))
+            if len(unique_chars) <= 3:
                 return True
 
         return False

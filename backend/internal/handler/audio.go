@@ -19,6 +19,7 @@ import (
 type AudioHandler struct {
 	cfg      *config.Config
 	aiClient *ai.GrpcClient
+	roomHub  *RoomHub // Room 기반 연결 관리
 }
 
 // NewAudioHandler AudioHandler 생성자
@@ -37,6 +38,10 @@ func NewAudioHandler(cfg *config.Config) *AudioHandler {
 	} else {
 		log.Println("ℹ️ AI server disabled, running in echo mode")
 	}
+
+	// RoomHub 초기화 (Room 기반 연결 관리)
+	handler.roomHub = NewRoomHub(handler.aiClient)
+	log.Println("🏠 RoomHub initialized for room-based connections")
 
 	return handler
 }
@@ -611,4 +616,122 @@ func (h *AudioHandler) sendErrorResponse(c *websocket.Conn, sessionID, code, mes
 	if err := c.WriteMessage(websocket.TextMessage, []byte(response)); err != nil {
 		log.Printf("⚠️ [%s] Failed to send error response: %v", sessionID, err)
 	}
+}
+
+// ============================================================================
+// Room 기반 WebSocket 핸들러 (새로운 아키텍처)
+// ============================================================================
+
+// HandleRoomWebSocket Room 기반 WebSocket 연결 처리
+// Room당 1 gRPC 스트림을 공유하여 효율적인 연결 관리
+func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Room WebSocket 패닉 복구: %v", r)
+		}
+	}()
+
+	// 쿼리 파라미터 추출
+	roomID, _ := c.Locals("roomId").(string)
+	listenerID, _ := c.Locals("listenerId").(string)
+	targetLang, _ := c.Locals("targetLang").(string)
+
+	if roomID == "" || listenerID == "" {
+		log.Printf("❌ Room WebSocket: missing roomId or listenerId")
+		h.sendRoomError(c, "INVALID_PARAMS", "roomId and listenerId are required")
+		return
+	}
+
+	if targetLang == "" {
+		targetLang = "en" // 기본값
+	}
+
+	log.Printf("🏠 [Room %s] New listener connected: %s (target: %s)", roomID, listenerID, targetLang)
+
+	// Room 가져오기 또는 생성
+	room := h.roomHub.GetOrCreateRoom(roomID)
+
+	// 리스너 등록
+	room.AddListener(listenerID, targetLang, c)
+
+	// Ready 응답 전송
+	readyResponse := fmt.Sprintf(`{"status":"ready","roomId":"%s","listenerId":"%s","targetLang":"%s"}`,
+		roomID, listenerID, targetLang)
+	if err := c.WriteMessage(websocket.TextMessage, []byte(readyResponse)); err != nil {
+		log.Printf("❌ [Room %s] Failed to send ready response: %v", roomID, err)
+		room.RemoveListener(listenerID)
+		return
+	}
+
+	// 연결 종료 시 정리
+	defer func() {
+		room.RemoveListener(listenerID)
+		log.Printf("🔌 [Room %s] Listener disconnected: %s", roomID, listenerID)
+		c.Close()
+	}()
+
+	// 오디오 수신 루프 (리스너가 캡처한 원격 참가자 오디오)
+	for {
+		messageType, msg, err := c.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("ℹ️ [Room %s] Listener %s disconnected normally", roomID, listenerID)
+			} else {
+				log.Printf("⚠️ [Room %s] Read error from %s: %v", roomID, listenerID, err)
+			}
+			return
+		}
+
+		// 바이너리 메시지 = 오디오 데이터
+		if messageType == websocket.BinaryMessage && len(msg) > 0 {
+			// 메시지 형식: [speakerId(36 bytes)][sourceLang(2 bytes)][audio data]
+			if len(msg) < 38 {
+				continue
+			}
+
+			speakerID := string(msg[:36])
+			sourceLang := string(msg[36:38])
+			audioData := msg[38:]
+
+			// Speaker 정보 업데이트 (있으면)
+			room.AddOrUpdateSpeaker(speakerID, sourceLang, "", "")
+
+			// Room에 오디오 전송
+			room.SendAudio(speakerID, sourceLang, audioData)
+		}
+
+		// 텍스트 메시지 = 제어 메시지
+		if messageType == websocket.TextMessage {
+			var controlMsg struct {
+				Type       string `json:"type"`
+				SpeakerID  string `json:"speakerId"`
+				SourceLang string `json:"sourceLang"`
+				Nickname   string `json:"nickname"`
+				ProfileImg string `json:"profileImg"`
+			}
+			if err := json.Unmarshal(msg, &controlMsg); err == nil {
+				if controlMsg.Type == "speaker_info" {
+					room.AddOrUpdateSpeaker(
+						controlMsg.SpeakerID,
+						controlMsg.SourceLang,
+						controlMsg.Nickname,
+						controlMsg.ProfileImg,
+					)
+					log.Printf("📢 [Room %s] Speaker info updated: %s (%s)",
+						roomID, controlMsg.Nickname, controlMsg.SourceLang)
+				}
+			}
+		}
+	}
+}
+
+// sendRoomError Room WebSocket 에러 응답 전송
+func (h *AudioHandler) sendRoomError(c *websocket.Conn, code, message string) {
+	response := fmt.Sprintf(`{"status":"error","code":"%s","message":"%s"}`, code, message)
+	_ = c.WriteMessage(websocket.TextMessage, []byte(response))
+}
+
+// GetRoomHub returns the RoomHub instance for external access
+func (h *AudioHandler) GetRoomHub() *RoomHub {
+	return h.roomHub
 }
