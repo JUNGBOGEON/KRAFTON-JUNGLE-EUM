@@ -158,6 +158,7 @@ export function useRoomTranslation({
     const autoPlayTTSRef = useRef(autoPlayTTS);
     const onTranscriptRef = useRef(onTranscript);
     const onErrorRef = useRef(onError);
+    const participantsRef = useRef(participants);
 
     // Audio ducking
     const { duckParticipant, unduckParticipant, unduckAll } = useAudioDucking();
@@ -185,12 +186,13 @@ export function useRoomTranslation({
         autoPlayTTSRef.current = autoPlayTTS;
         onTranscriptRef.current = onTranscript;
         onErrorRef.current = onError;
+        participantsRef.current = participants;
         duckParticipantRef.current = duckParticipant;
         unduckParticipantRef.current = unduckParticipant;
         unduckAllRef.current = unduckAll;
         queueAudioRef.current = queueAudio;
         stopAllAudioRef.current = stopAllAudio;
-    }, [targetLanguage, enabled, autoPlayTTS, onTranscript, onError, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAllAudio]);
+    }, [targetLanguage, enabled, autoPlayTTS, onTranscript, onError, participants, duckParticipant, unduckParticipant, unduckAll, queueAudio, stopAllAudio]);
 
     // Memoize participant IDs
     const participantIds = useMemo(
@@ -478,8 +480,8 @@ export function useRoomTranslation({
                             language: data.data?.language,
                         };
 
-                        // Try to get participant info
-                        const participant = participants.find(p => p.identity === transcriptData.participantId);
+                        // Try to get participant info (use ref to avoid reconnection)
+                        const participant = participantsRef.current.find(p => p.identity === transcriptData.participantId);
                         if (participant) {
                             transcriptData.participantName = participant.name || participant.identity;
                             transcriptData.profileImg = getParticipantProfileImg(participant);
@@ -519,8 +521,8 @@ export function useRoomTranslation({
         return () => {
             cleanupAll();
         };
-    // autoPlayTTS는 ref로 관리되므로 dependency에서 제외 (불필요한 재연결 방지)
-    }, [roomId, enabled, targetLanguage, listenerId, localParticipant?.identity, cleanupAll, participants]);
+    // autoPlayTTS, participants는 ref로 관리되므로 dependency에서 제외 (불필요한 재연결 방지)
+    }, [roomId, enabled, targetLanguage, listenerId, localParticipant?.identity, cleanupAll]);
 
     // Effect: Manage speaker captures based on audio tracks
     useEffect(() => {
