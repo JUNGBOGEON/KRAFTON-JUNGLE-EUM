@@ -46,14 +46,15 @@ type TranscriptMessage struct {
 
 // Session 클라이언트 세션 (Thread-Safe)
 type Session struct {
-	ID            string
-	State         State
-	Metadata      *model.AudioMetadata
-	ConnectedAt   time.Time
-	AudioBytes    int64
-	PacketCount   uint64
-	Language      string // 번역 대상 언어 (ko, en, ja, zh)
-	ParticipantID string // 발화자 식별 ID (원격 참가자의 identity)
+	ID             string
+	State          State
+	Metadata       *model.AudioMetadata
+	ConnectedAt    time.Time
+	AudioBytes     int64
+	PacketCount    uint64
+	SourceLanguage string // 발화자가 말하는 언어 (ko, en, ja, zh)
+	Language       string // 번역 대상 언어 (ko, en, ja, zh) - 하위 호환용
+	ParticipantID  string // 발화자 식별 ID (원격 참가자의 identity)
 
 	// 동시성 제어
 	mu sync.RWMutex
@@ -106,6 +107,25 @@ func (s *Session) GetMetadata() *model.AudioMetadata {
 	defer s.mu.RUnlock()
 
 	return s.Metadata
+}
+
+// SetSourceLanguage 발화자가 말하는 언어 설정
+func (s *Session) SetSourceLanguage(lang string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.SourceLanguage = lang
+}
+
+// GetSourceLanguage 발화자가 말하는 언어 조회
+func (s *Session) GetSourceLanguage() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.SourceLanguage == "" {
+		return "ko" // 기본값: 한국어
+	}
+	return s.SourceLanguage
 }
 
 // SetLanguage 번역 대상 언어 설정

@@ -4,10 +4,11 @@ import { useCallback, useRef } from "react";
 import { useParticipants } from "@livekit/components-react";
 import { Track, RemoteAudioTrack } from "livekit-client";
 
-const DUCK_VOLUME = 0.1;
+// 요구사항: TTS 재생 시 원본 볼륨을 20-30%로 줄임
+const DUCK_VOLUME = 0.25;      // 25% (20-30% 사이)
 const NORMAL_VOLUME = 1.0;
-const FADE_DURATION_MS = 200;
-const FADE_STEPS = 10;
+const FADE_DURATION_MS = 300;  // 부드러운 전환을 위해 300ms
+const FADE_STEPS = 15;         // 더 부드러운 페이드
 
 interface DuckingState {
     participantId: string;

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"realtime-backend/internal/auth"
 	"realtime-backend/internal/model"
@@ -120,38 +121,58 @@ func (h *AuthHandler) GoogleLogin(c *fiber.Ctx) error {
 		sanitizedName = googleUser.Email[:min(len(googleUser.Email), 20)]
 	}
 
-	// 사용자 조회 또는 생성
-	var user model.User
-	result := h.db.Where("email = ?", googleUser.Email).First(&user)
-
+	// 사용자 조회 또는 생성 (Race condition 방지를 위해 Upsert 사용)
 	provider := "google"
-	if result.Error == gorm.ErrRecordNotFound {
-		// 신규 사용자 생성
-		user = model.User{
-			Email:      googleUser.Email,
-			Nickname:   sanitizedName,
-			ProfileImg: &googleUser.Picture,
-			Provider:   &provider,
-			ProviderID: &googleUser.ID,
+	var user model.User
+
+	// 트랜잭션으로 원자적 처리
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		// 먼저 기존 사용자 조회
+		result := tx.Where("email = ?", googleUser.Email).First(&user)
+
+		if result.Error == gorm.ErrRecordNotFound {
+			// 신규 사용자 생성 (ON CONFLICT로 중복 방지)
+			user = model.User{
+				Email:      googleUser.Email,
+				Nickname:   sanitizedName,
+				ProfileImg: &googleUser.Picture,
+				Provider:   &provider,
+				ProviderID: &googleUser.ID,
+			}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "email"}},
+				DoUpdates: clause.AssignmentColumns([]string{"profile_img", "provider", "provider_id"}),
+			}).Create(&user).Error; err != nil {
+				return err
+			}
+
+			// Upsert 후 최신 데이터 다시 조회 (ID 확보)
+			if err := tx.Where("email = ?", googleUser.Email).First(&user).Error; err != nil {
+				return err
+			}
+		} else if result.Error != nil {
+			return result.Error
+		} else {
+			// 기존 사용자 업데이트
+			updates := map[string]interface{}{
+				"profile_img": googleUser.Picture,
+			}
+			// Provider가 없거나 다르면 업데이트
+			if user.Provider == nil || *user.Provider != "google" {
+				updates["provider"] = provider
+				updates["provider_id"] = googleUser.ID
+			}
+			if err := tx.Model(&user).Updates(updates).Error; err != nil {
+				return err
+			}
 		}
-		if err := h.db.Create(&user).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "failed to create user",
-			})
-		}
-	} else if result.Error != nil {
+		return nil
+	})
+
+	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "database error",
+			"error": "failed to process user",
 		})
-	} else {
-		// 기존 사용자 업데이트
-		user.ProfileImg = &googleUser.Picture
-		// Provider가 다르면 업데이트 (local → google 전환)
-		if user.Provider == nil || *user.Provider != "google" {
-			user.Provider = &provider
-			user.ProviderID = &googleUser.ID
-		}
-		h.db.Save(&user)
 	}
 
 	// JWT 토큰 생성

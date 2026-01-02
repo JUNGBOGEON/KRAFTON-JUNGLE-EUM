@@ -11,7 +11,8 @@ import CallsSection from "./components/CallsSection";
 import CalendarSection from "./components/CalendarSection";
 import StorageSection from "./components/StorageSection";
 import NotificationDropdown from "../../components/NotificationDropdown";
-import EditProfileModal from "../../../components/EditProfileModal"; // Import Modal
+import EditProfileModal from "../../../components/EditProfileModal";
+import { useVoiceParticipantsWebSocket } from "../../hooks/useVoiceParticipantsWebSocket";
 
 export default function WorkspaceDetailPage() {
   const router = useRouter();
@@ -39,7 +40,42 @@ export default function WorkspaceDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false); // Modal State
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
+
+  // 음성 참가자 WebSocket (입장/퇴장 알림용)
+  const workspaceId = Number(params.id);
+  const { sendJoin, sendLeave } = useVoiceParticipantsWebSocket({
+    workspaceId: isNaN(workspaceId) ? 0 : workspaceId,
+    enabled: isAuthenticated && !isNaN(workspaceId),
+  });
+
+  // 통화 입장 핸들러
+  const handleJoinCall = useCallback((channelId: string, channelName: string) => {
+    setActiveCall({
+      channelId,
+      channelName,
+      participants: user ? [{
+        id: user.id,
+        nickname: user.nickname,
+        profileImg: user.profileImg
+      }] : []
+    });
+
+    // WebSocket으로 입장 알림
+    if (user) {
+      const roomName = `workspace-${workspaceId}-${channelId}`;
+      sendJoin(roomName, user.nickname, user.nickname, user.profileImg);
+    }
+  }, [user, workspaceId, sendJoin]);
+
+  // 통화 퇴장 핸들러
+  const handleLeaveCall = useCallback(() => {
+    if (activeCall && user) {
+      const roomName = `workspace-${workspaceId}-${activeCall.channelId}`;
+      sendLeave(roomName, user.nickname);
+    }
+    setActiveCall(null);
+  }, [activeCall, user, workspaceId, sendLeave]);
 
   // 로그아웃 핸들러
   const handleLogout = async () => {
@@ -126,16 +162,8 @@ export default function WorkspaceDetailPage() {
           workspaceId={workspace.id}
           channelId={activeSection}
           activeCall={activeCall}
-          onJoinCall={(channelId, channelName) => setActiveCall({
-            channelId,
-            channelName,
-            participants: user ? [{
-              id: user.id,
-              nickname: user.nickname,
-              profileImg: user.profileImg
-            }] : []
-          })}
-          onLeaveCall={() => setActiveCall(null)}
+          onJoinCall={handleJoinCall}
+          onLeaveCall={handleLeaveCall}
         />
       );
     }
@@ -219,16 +247,8 @@ export default function WorkspaceDetailPage() {
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         onUpdateWorkspace={(name) => setWorkspace((prev) => (prev ? { ...prev, name } : null))}
         activeCall={activeCall}
-        onJoinCall={(channelId, channelName) => setActiveCall({
-          channelId,
-          channelName,
-          participants: user ? [{
-            id: user.id,
-            nickname: user.nickname,
-            profileImg: user.profileImg
-          }] : []
-        })}
-        onLeaveCall={() => setActiveCall(null)}
+        onJoinCall={handleJoinCall}
+        onLeaveCall={handleLeaveCall}
       />
 
       {/* Main Content */}

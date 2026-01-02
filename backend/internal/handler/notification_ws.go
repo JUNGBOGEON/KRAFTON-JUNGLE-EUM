@@ -53,6 +53,13 @@ func NewNotificationWSHandler() *NotificationWSHandler {
 
 // HandleWebSocket WebSocket 연결 처리
 func (h *NotificationWSHandler) HandleWebSocket(c *websocket.Conn) {
+	// 패닉 복구 - 서버 크래시 방지
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("알림 WebSocket 패닉 복구: %v", r)
+		}
+	}()
+
 	userIDInterface := c.Locals("userId")
 	userID, ok := userIDInterface.(int64)
 	if !ok {

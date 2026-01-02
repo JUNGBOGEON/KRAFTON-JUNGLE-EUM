@@ -4,100 +4,192 @@ package conversation;
 
 option go_package = "realtime-backend/pb;pb";
 
+// =============================================================================
 // 대화 서비스 정의
+// =============================================================================
+
 service ConversationService {
   // 양방향 스트리밍 RPC
   // Go(Audio) → Python(AI) → Go(Audio/Text)
   rpc StreamChat (stream ChatRequest) returns (stream ChatResponse);
+
+  // 참가자 설정 업데이트 (타겟 언어 변경 등)
+  rpc UpdateParticipantSettings (ParticipantSettingsRequest) returns (ParticipantSettingsResponse);
 }
 
+// =============================================================================
 // 클라이언트 → 서버 요청
+// =============================================================================
+
 message ChatRequest {
-  // 세션 식별자
-  string session_id = 1;
+  string session_id = 1;       // 세션 식별자
+  string room_id = 2;          // 회의실 ID
+  string participant_id = 3;   // 발화자 ID
 
-  // 요청 타입 (oneof)
   oneof payload {
-    // 오디오 청크 (Int16 PCM)
-    bytes audio_chunk = 2;
-
-    // 세션 초기화 정보
-    SessionInit session_init = 3;
-
-    // 세션 종료 신호
-    SessionEnd session_end = 4;
+    bytes audio_chunk = 4;           // 오디오 청크 (Int16 PCM)
+    SessionInit session_init = 5;    // 세션 초기화 정보
+    SessionEnd session_end = 6;      // 세션 종료 신호
   }
 }
 
 // 세션 초기화 정보
 message SessionInit {
-  uint32 sample_rate = 1;      // 샘플레이트 (예: 16000)
-  uint32 channels = 2;         // 채널 수 (예: 1)
-  uint32 bits_per_sample = 3;  // 비트 깊이 (예: 16)
-  string language = 4;         // 언어 코드 (예: "ko-KR")
+  uint32 sample_rate = 1;           // 샘플레이트 (예: 16000)
+  uint32 channels = 2;              // 채널 수 (예: 1)
+  uint32 bits_per_sample = 3;       // 비트 깊이 (예: 16)
+  string source_language = 4;       // 발화자 언어 코드 (예: "ko", "en", "zh", "ja")
+
+  // 회의실 참가자 목록 (각자의 타겟 언어 포함)
+  repeated ParticipantInfo participants = 5;
+
+  // 발화자 정보
+  SpeakerInfo speaker = 6;
+}
+
+// 참가자 정보
+message ParticipantInfo {
+  string participant_id = 1;        // 참가자 고유 ID
+  string nickname = 2;              // 닉네임
+  string profile_img = 3;           // 프로필 이미지 URL
+  string target_language = 4;       // 듣고 싶은 언어 코드
+  bool translation_enabled = 5;     // 번역 기능 활성화 여부
+}
+
+// 발화자 정보
+message SpeakerInfo {
+  string participant_id = 1;
+  string nickname = 2;
+  string profile_img = 3;
+  string source_language = 4;
 }
 
 // 세션 종료 신호
 message SessionEnd {
-  string reason = 1;  // 종료 사유
+  string reason = 1;
 }
 
+// 참가자 설정 업데이트 요청
+message ParticipantSettingsRequest {
+  string room_id = 1;
+  string participant_id = 2;
+  string target_language = 3;
+  bool translation_enabled = 4;
+}
+
+// 참가자 설정 업데이트 응답
+message ParticipantSettingsResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// =============================================================================
 // 서버 → 클라이언트 응답
+// =============================================================================
+
 message ChatResponse {
-  // 세션 식별자
   string session_id = 1;
+  string room_id = 2;
 
-  // 응답 타입 (oneof)
   oneof payload {
-    // TTS 오디오 청크 (raw bytes - deprecated)
-    bytes audio_chunk = 2;
-
-    // STT 중간 결과 (실시간 자막)
-    TranscriptPartial transcript_partial = 3;
-
-    // STT 최종 결과
-    TranscriptFinal transcript_final = 4;
-
-    // LLM 응답 텍스트
-    TextResponse text_response = 5;
-
-    // 에러 응답
-    ErrorResponse error = 6;
-
-    // TTS 오디오 응답 (메타데이터 포함)
-    AudioResponse audio_response = 7;
+    TranscriptResult transcript = 3;      // STT 결과 (원본 + 번역)
+    AudioResult audio = 4;                // TTS 오디오 (타겟별)
+    ErrorResponse error = 5;              // 에러
+    SessionStatus status = 6;             // 세션 상태
   }
 }
 
-// TTS 오디오 응답
-message AudioResponse {
-  bytes audio_data = 1;      // 오디오 바이트 (MP3/PCM)
-  string format = 2;         // 포맷 (예: "mp3", "pcm")
-  uint32 sample_rate = 3;    // 샘플레이트 (예: 24000)
+// =============================================================================
+// STT/번역 결과
+// =============================================================================
+
+message TranscriptResult {
+  string id = 1;                         // 고유 ID (중복 방지)
+  SpeakerInfo speaker = 2;               // 발화자 정보
+
+  string original_text = 3;              // 원본 텍스트
+  string original_language = 4;          // 원본 언어
+
+  // 타겟 언어별 번역 결과
+  repeated TranslationEntry translations = 5;
+
+  bool is_partial = 6;                   // 실시간 중간 결과 여부
+  bool is_final = 7;                     // 문장 완료 여부
+
+  uint64 timestamp_ms = 8;               // 타임스탬프
+  float confidence = 9;                  // 신뢰도
 }
 
-// STT 중간 결과 (실시간 자막)
-message TranscriptPartial {
-  string text = 1;
-  float confidence = 2;
+// 번역 항목 (타겟 언어별)
+message TranslationEntry {
+  string target_language = 1;            // 타겟 언어 코드
+  string translated_text = 2;            // 번역된 텍스트
+
+  // 이 번역을 받아야 할 참가자 ID 목록
+  repeated string target_participant_ids = 3;
 }
 
-// STT 최종 결과
-message TranscriptFinal {
-  string text = 1;
-  float confidence = 2;
-  uint64 start_time_ms = 3;
-  uint64 end_time_ms = 4;
+// =============================================================================
+// TTS 오디오 결과
+// =============================================================================
+
+message AudioResult {
+  string transcript_id = 1;              // 연관된 transcript ID
+  string target_language = 2;            // 타겟 언어
+
+  // 이 오디오를 받아야 할 참가자 ID 목록
+  repeated string target_participant_ids = 3;
+
+  bytes audio_data = 4;                  // 오디오 바이트 (MP3)
+  string format = 5;                     // 포맷 (예: "mp3")
+  uint32 sample_rate = 6;                // 샘플레이트
+  uint32 duration_ms = 7;                // 오디오 길이 (ms)
+
+  // 발화자 정보 (Self-mute 처리용)
+  string speaker_participant_id = 8;
 }
 
-// LLM 응답 텍스트
-message TextResponse {
-  string text = 1;
-  bool is_final = 2;  // 스트리밍 중인지 최종인지
+// =============================================================================
+// 세션 상태
+// =============================================================================
+
+message SessionStatus {
+  enum Status {
+    UNKNOWN = 0;
+    READY = 1;
+    PROCESSING = 2;
+    BUFFERING = 3;           // 문장 완성 대기 중 (어순 다른 언어)
+    COMPLETED = 4;
+    ERROR = 5;
+  }
+
+  Status status = 1;
+  string message = 2;
+
+  // 현재 버퍼링 전략 정보
+  BufferingStrategy buffering_strategy = 3;
 }
 
+// 버퍼링 전략 정보
+message BufferingStrategy {
+  string source_language = 1;
+  string primary_target_language = 2;
+
+  enum StrategyType {
+    CHUNK_BASED = 0;         // 1.5초 단위 청크 (어순 유사)
+    SENTENCE_BASED = 1;      // 문장 완성 대기 (어순 상이)
+  }
+
+  StrategyType strategy = 3;
+  uint32 buffer_size_ms = 4;    // 현재 버퍼 크기
+}
+
+// =============================================================================
 // 에러 응답
+// =============================================================================
+
 message ErrorResponse {
   string code = 1;
   string message = 2;
+  string details = 3;
 }

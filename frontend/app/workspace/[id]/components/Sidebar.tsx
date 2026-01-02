@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient, ChatRoom } from "../../../lib/api";
+import { useVoiceParticipantsWebSocket } from "../../../hooks/useVoiceParticipantsWebSocket";
 
 interface VoiceParticipant {
   identity: string;
@@ -149,34 +150,66 @@ export default function Sidebar({
     loadMemberProfiles();
   }, [workspaceId]);
 
-  // 통화방 참가자 목록 주기적으로 가져오기
-  const fetchVoiceParticipants = useCallback(async () => {
-    if (callChannels.length === 0) return;
-
-    try {
-      // 워크스페이스별로 고유한 방 이름 사용
-      const roomNames = callChannels.map(ch => `workspace-${workspaceId}-${ch.id}`);
-      const participants = await apiClient.getAllRoomsParticipants(roomNames);
-      setVoiceParticipants(participants);
-    } catch (error) {
-      console.error("Failed to fetch voice participants:", error);
+  // 음성 참가자 WebSocket 핸들러
+  const handleParticipantsInit = useCallback((participants: Record<string, { identity: string; name: string; profileImg?: string; joinedAt?: number }[]>) => {
+    // roomName 형식을 channel-{id} 형식으로 변환
+    const converted: Record<string, VoiceParticipant[]> = {};
+    for (const [roomName, participantList] of Object.entries(participants)) {
+      // workspace-{id}-call-xxx 형식에서 channel-call-xxx 형식으로 변환
+      const parts = roomName.split('-');
+      if (parts.length >= 3) {
+        const channelKey = `channel-${parts.slice(2).join('-')}`;
+        converted[channelKey] = participantList.map(p => ({
+          identity: p.identity,
+          name: p.name,
+          joinedAt: p.joinedAt || Date.now(),
+        }));
+      }
     }
-  }, [callChannels, workspaceId]);
+    setVoiceParticipants(converted);
+  }, []);
 
-  useEffect(() => {
-    fetchVoiceParticipants();
-    const interval = setInterval(fetchVoiceParticipants, 5000); // 5초마다 갱신
-    return () => clearInterval(interval);
-  }, [fetchVoiceParticipants]);
+  const handleParticipantJoin = useCallback((channelId: string, participant: { identity: string; name: string; profileImg?: string }) => {
+    setVoiceParticipants(prev => {
+      const roomName = channelId.startsWith('channel-') ? channelId : `channel-${channelId}`;
+      const currentParticipants = prev[roomName] || [];
 
-  // 통화 참여/퇴장 시 즉시 갱신
-  useEffect(() => {
-    // 약간의 딜레이 후 갱신 (LiveKit 연결 완료 대기)
-    const timer = setTimeout(() => {
-      fetchVoiceParticipants();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [activeCall, fetchVoiceParticipants]);
+      // 중복 방지
+      if (currentParticipants.some(p => p.identity === participant.identity)) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [roomName]: [...currentParticipants, {
+          identity: participant.identity,
+          name: participant.name,
+          joinedAt: Date.now(),
+        }],
+      };
+    });
+  }, []);
+
+  const handleParticipantLeave = useCallback((channelId: string, identity: string) => {
+    setVoiceParticipants(prev => {
+      const roomName = channelId.startsWith('channel-') ? channelId : `channel-${channelId}`;
+      const currentParticipants = prev[roomName] || [];
+
+      return {
+        ...prev,
+        [roomName]: currentParticipants.filter(p => p.identity !== identity),
+      };
+    });
+  }, []);
+
+  // WebSocket 훅 사용
+  const { sendJoin, sendLeave } = useVoiceParticipantsWebSocket({
+    workspaceId,
+    onParticipantsInit: handleParticipantsInit,
+    onParticipantJoin: handleParticipantJoin,
+    onParticipantLeave: handleParticipantLeave,
+    enabled: true,
+  });
 
   // 채팅방 생성
   const handleCreateChatRoom = async () => {

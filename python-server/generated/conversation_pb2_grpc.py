@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import conversation_pb2 as conversation__pb2
+import conversation_pb2 as conversation__pb2
 
 GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class ConversationServiceStub(object):
-    """대화 서비스 정의
+    """실시간 번역 서비스
     """
 
     def __init__(self, channel):
@@ -40,15 +40,27 @@ class ConversationServiceStub(object):
                 request_serializer=conversation__pb2.ChatRequest.SerializeToString,
                 response_deserializer=conversation__pb2.ChatResponse.FromString,
                 _registered_method=True)
+        self.UpdateParticipantSettings = channel.unary_unary(
+                '/conversation.ConversationService/UpdateParticipantSettings',
+                request_serializer=conversation__pb2.ParticipantSettingsRequest.SerializeToString,
+                response_deserializer=conversation__pb2.ParticipantSettingsResponse.FromString,
+                _registered_method=True)
 
 
 class ConversationServiceServicer(object):
-    """대화 서비스 정의
+    """실시간 번역 서비스
     """
 
     def StreamChat(self, request_iterator, context):
         """양방향 스트리밍 RPC
         Go(Audio) → Python(AI) → Go(Audio/Text)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateParticipantSettings(self, request, context):
+        """참가자 설정 업데이트 (타겟 언어 변경 등)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -62,6 +74,11 @@ def add_ConversationServiceServicer_to_server(servicer, server):
                     request_deserializer=conversation__pb2.ChatRequest.FromString,
                     response_serializer=conversation__pb2.ChatResponse.SerializeToString,
             ),
+            'UpdateParticipantSettings': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateParticipantSettings,
+                    request_deserializer=conversation__pb2.ParticipantSettingsRequest.FromString,
+                    response_serializer=conversation__pb2.ParticipantSettingsResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'conversation.ConversationService', rpc_method_handlers)
@@ -71,7 +88,7 @@ def add_ConversationServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class ConversationService(object):
-    """대화 서비스 정의
+    """실시간 번역 서비스
     """
 
     @staticmethod
@@ -91,6 +108,33 @@ class ConversationService(object):
             '/conversation.ConversationService/StreamChat',
             conversation__pb2.ChatRequest.SerializeToString,
             conversation__pb2.ChatResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateParticipantSettings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/conversation.ConversationService/UpdateParticipantSettings',
+            conversation__pb2.ParticipantSettingsRequest.SerializeToString,
+            conversation__pb2.ParticipantSettingsResponse.FromString,
             options,
             channel_credentials,
             insecure,

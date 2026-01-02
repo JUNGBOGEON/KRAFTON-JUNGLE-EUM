@@ -6,6 +6,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from "react";
 import { apiClient, AuthResponse } from "./api";
@@ -29,9 +30,31 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// 재시도 헬퍼 함수
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 500
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < maxRetries - 1) {
+        // 지수 백오프: 500ms, 1000ms, 2000ms...
+        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isLoginInProgress = useRef(false);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -55,9 +78,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   const loginWithGoogle = async (idToken: string) => {
+    // 중복 로그인 요청 방지
+    if (isLoginInProgress.current) {
+      console.warn("Login already in progress");
+      return;
+    }
+
+    isLoginInProgress.current = true;
     setIsLoading(true);
+
     try {
-      const response: AuthResponse = await apiClient.loginWithGoogle(idToken);
+      // 재시도 로직으로 일시적 실패 대응
+      const response: AuthResponse = await retryWithBackoff(
+        () => apiClient.loginWithGoogle(idToken),
+        3,
+        500
+      );
+
       setUser({
         id: response.user.id,
         email: response.user.email,
@@ -65,7 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileImg: response.user.profile_img,
         provider: response.user.provider,
       });
+    } catch (error) {
+      console.error("Google login failed:", error);
+      throw error; // 에러를 다시 던져서 호출자가 처리할 수 있게 함
     } finally {
+      isLoginInProgress.current = false;
       setIsLoading(false);
     }
   };

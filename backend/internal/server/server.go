@@ -39,10 +39,11 @@ type Server struct {
 	calendarHandler       *handler.CalendarHandler
 	storageHandler        *handler.StorageHandler
 	roleHandler           *handler.RoleHandler
-	videoHandler          *handler.VideoHandler
-	whiteboardHandler     *handler.WhiteboardHandler
-	voiceRecordHandler    *handler.VoiceRecordHandler
-	jwtManager            *auth.JWTManager
+	videoHandler               *handler.VideoHandler
+	whiteboardHandler          *handler.WhiteboardHandler
+	voiceRecordHandler         *handler.VoiceRecordHandler
+	voiceParticipantsWSHandler *handler.VoiceParticipantsWSHandler
+	jwtManager                 *auth.JWTManager
 }
 
 // New 새 서버 인스턴스 생성
@@ -82,6 +83,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	videoHandler := handler.NewVideoHandler(cfg, db)
 	whiteboardHandler := handler.NewWhiteboardHandler(db)
 	voiceRecordHandler := handler.NewVoiceRecordHandler(db)
+	voiceParticipantsWSHandler := handler.NewVoiceParticipantsWSHandler(cfg)
 
 	// S3 서비스 초기화 (선택적)
 	var s3Service *storage.S3Service
@@ -114,10 +116,11 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		calendarHandler:       calendarHandler,
 		storageHandler:        storageHandler,
 		roleHandler:           roleHandler,
-		videoHandler:          videoHandler,
-		whiteboardHandler:     whiteboardHandler,
-		voiceRecordHandler:    voiceRecordHandler,
-		jwtManager:            jwtManager,
+		videoHandler:               videoHandler,
+		whiteboardHandler:          whiteboardHandler,
+		voiceRecordHandler:         voiceRecordHandler,
+		voiceParticipantsWSHandler: voiceParticipantsWSHandler,
+		jwtManager:                 jwtManager,
 	}
 }
 
@@ -283,16 +286,31 @@ func (s *Server) SetupRoutes() {
 			return fiber.ErrUpgradeRequired
 		}
 
-		// 언어 파라미터 추출 (기본값: en)
-		lang := c.Query("lang", "en")
-		// 지원하는 언어만 허용
-		switch lang {
+		// 소스 언어 파라미터 추출 (발화자가 말하는 언어, 기본값: ko)
+		sourceLang := c.Query("sourceLang", "ko")
+		switch sourceLang {
 		case "ko", "en", "ja", "zh":
 			// 유효한 언어
 		default:
-			lang = "en"
+			sourceLang = "ko"
 		}
-		c.Locals("lang", lang)
+		c.Locals("sourceLang", sourceLang)
+
+		// 타겟 언어 파라미터 추출 (듣고 싶은 언어, 기본값: en)
+		targetLang := c.Query("targetLang", "en")
+		switch targetLang {
+		case "ko", "en", "ja", "zh":
+			// 유효한 언어
+		default:
+			targetLang = "en"
+		}
+		c.Locals("targetLang", targetLang)
+
+		// 기존 lang 파라미터도 지원 (하위 호환성)
+		if c.Query("lang") != "" && c.Query("sourceLang") == "" {
+			legacyLang := c.Query("lang", "en")
+			c.Locals("targetLang", legacyLang)
+		}
 
 		// 발화자 식별 ID 추출 (원격 참가자의 identity)
 		participantId := c.Query("participantId", "")
@@ -390,6 +408,47 @@ func (s *Server) SetupRoutes() {
 
 		return c.Next()
 	}, websocket.New(s.chatWSHandler.HandleWebSocket, websocket.Config{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+	}))
+
+	// WebSocket 음성 참가자 엔드포인트
+	s.app.Get("/ws/voice-participants/:workspaceId", func(c *fiber.Ctx) error {
+		if !websocket.IsWebSocketUpgrade(c) {
+			return fiber.ErrUpgradeRequired
+		}
+
+		// 쿠키에서 JWT 토큰 추출
+		accessToken := c.Cookies("access_token")
+		if accessToken == "" {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
+		// JWT 검증
+		claims, err := s.jwtManager.ValidateAccessToken(accessToken)
+		if err != nil {
+			return c.SendStatus(fiber.StatusUnauthorized)
+		}
+
+		workspaceID, err := c.ParamsInt("workspaceId")
+		if err != nil {
+			return c.SendStatus(fiber.StatusBadRequest)
+		}
+
+		// 멤버 확인 (ACTIVE 상태만)
+		var count int64
+		s.db.Table("workspace_members").
+			Where("workspace_id = ? AND user_id = ? AND status = ?", workspaceID, claims.UserID, "ACTIVE").
+			Count(&count)
+		if count == 0 {
+			return c.SendStatus(fiber.StatusForbidden)
+		}
+
+		c.Locals("workspaceId", int64(workspaceID))
+		c.Locals("userId", claims.UserID)
+
+		return c.Next()
+	}, websocket.New(s.voiceParticipantsWSHandler.HandleWebSocket, websocket.Config{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 	}))

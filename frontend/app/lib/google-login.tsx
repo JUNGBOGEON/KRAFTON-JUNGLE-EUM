@@ -216,23 +216,38 @@ export function CustomGoogleLoginButton({
     // 숨겨진 Google 버튼 클릭
     const googleButton = hiddenButtonRef.current?.querySelector('div[role="button"]') as HTMLElement;
     if (googleButton) {
-      googleButton.click();
+      // Chrome 호환성: dispatchEvent 사용
+      const clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      });
+      googleButton.dispatchEvent(clickEvent);
     }
   }, []);
 
   return (
-    <>
-      {/* 숨겨진 Google 버튼 */}
+    <div className="relative inline-block">
+      {/* 숨겨진 Google 버튼 - 실제 클릭 영역 */}
       <div
         ref={hiddenButtonRef}
         id={buttonId.current}
-        style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0, overflow: 'hidden' }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0.01,
+          zIndex: 1,
+        }}
       />
-      {/* 커스텀 버튼 */}
+      {/* 커스텀 버튼 - 시각적 표시 */}
       <button
         onClick={handleClick}
         disabled={isLoading || !isScriptLoaded}
         className={`flex items-center justify-center gap-3 ${className}`}
+        style={{ position: 'relative', zIndex: 0 }}
       >
         {isLoading ? (
           <img
@@ -264,6 +279,6 @@ export function CustomGoogleLoginButton({
           </>
         )}
       </button>
-    </>
+    </div>
   );
 }

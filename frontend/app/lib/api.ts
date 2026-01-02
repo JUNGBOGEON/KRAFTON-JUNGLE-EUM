@@ -272,6 +272,8 @@ interface CreateVoiceRecordBulkRequest {
 // HTTP-only 쿠키 기반 인증 (XSS 방지)
 class ApiClient {
   private isLoggedIn: boolean = false;
+  private isRefreshing: boolean = false;
+  private refreshPromise: Promise<boolean> | null = null;
 
   private async request<T>(
     endpoint: string,
@@ -334,6 +336,23 @@ class ApiClient {
   }
 
   async refreshToken(): Promise<boolean> {
+    // 이미 리프레시 중이면 기존 Promise 재사용 (동시 요청 방지)
+    if (this.isRefreshing && this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.isRefreshing = true;
+    this.refreshPromise = this.doRefreshToken();
+
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.isRefreshing = false;
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefreshToken(): Promise<boolean> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',

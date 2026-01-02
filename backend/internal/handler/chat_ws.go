@@ -82,10 +82,13 @@ func (h *ChatWSHandler) getOrCreateRoom(roomID int64) *ChatRoom {
 // HandleWebSocket WebSocket 연결 처리
 func (h *ChatWSHandler) HandleWebSocket(c *websocket.Conn) {
 
-	// 쿼리 파라미터에서 정보 가져오기 (server.go의 미들웨어에서 설정한 Locals 사용 불가)
-	// websocket.Conn은 fasthttp.RequestCtx에 접근할 수 없으므로,
-	// server.go에서 websocket.New() 호출 시 Locals 값을 Config로 전달하거나
-	// 여기서는 일단 로그만 찍고 로직 진행
+	// 패닉 복구 - 서버 크래시 방지
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("채팅 WebSocket 패닉 복구: %v", r)
+		}
+	}()
+
 	// 쿼리 파라미터에서 정보 추출 (안전한 타입 변환)
 	roomIDInterface := c.Locals("roomId")
 	userIDInterface := c.Locals("userId")

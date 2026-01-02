@@ -14,7 +14,7 @@ env:
   ECR_REPOSITORY: eum-backend
   ECS_CLUSTER: eum-cluster
   ECS_SERVICE: eum-backend-task-service-pio5mdy2
-  ECS_TASK_DEFINITION: eum-backend-task
+  ECS_TASK_DEFINITION: eum-backend-task3
   CONTAINER_NAME: eum-backend
 
 jobs:
