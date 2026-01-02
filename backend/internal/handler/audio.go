@@ -104,6 +104,7 @@ func (h *AudioHandler) HandleWebSocket(c *websocket.Conn) {
 				return
 			}
 		}
+	}
 	// Room ID 추출 (Locals에서)
 	if roomId, ok := c.Locals("roomId").(string); ok && roomId != "" {
 		sess.SetRoomID(roomId)
@@ -185,7 +186,10 @@ func (h *AudioHandler) HandleWebSocket(c *websocket.Conn) {
 }
 
 // performHandshake 메타데이터 헤더 수신 및 검증
-func (h *AudioHandler) performHandshake(c *websocket.Conn, sess *session.Session) error {
+func (h *AudioHandler) performHandshake(
+	c *websocket.Conn,
+	sess *session.Session,
+) error {
 	deadline := time.Now().Add(h.cfg.WebSocket.HandshakeTimeout)
 	if err := c.SetReadDeadline(deadline); err != nil {
 		return fmt.Errorf("failed to set read deadline: %w", err)
@@ -339,7 +343,7 @@ func (h *AudioHandler) aiUnifiedWorker(sess *session.Session) {
 		{
 			ParticipantID:      participantID,
 			Nickname:           participantID,
-			TargetLanguage:     targetLang, // 듣고 싶은 언어
+			TargetLanguage:     targetLang,               // 듣고 싶은 언어
 			TranslationEnabled: sourceLang != targetLang, // 소스와 타겟이 다르면 번역 활성화
 		},
 	}
