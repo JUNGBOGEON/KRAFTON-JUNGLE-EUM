@@ -719,42 +719,41 @@ class ConversationServicer(conversation_pb2_grpc.ConversationServiceServicer):
                         )
                     )
 
-                # 오디오 청크 처리 (VAD 없이 - 프론트엔드에서 이미 처리됨)
+                # 오디오 청크 처리 (프론트엔드에서 이미 침묵 감지 완료)
+                # 프론트엔드가 utterance complete 시점에 오디오를 보내므로 바로 처리
                 elif payload_type == 'audio_chunk' and session_state:
                     audio_chunk = request.audio_chunk
-                    session_state.audio_buffer.extend(audio_chunk)
+                    chunk_bytes = len(audio_chunk)
 
-                    # 버퍼 크기 체크
-                    buffer_bytes = len(session_state.audio_buffer)
+                    # 최소 0.5초 이상의 오디오만 처리 (너무 작은 청크 무시)
+                    min_bytes = Config.BYTES_PER_SECOND // 2  # 0.5초 = 16000 bytes
 
-                    # 디버그: 수신된 오디오 레벨 확인
-                    if buffer_bytes >= 3200:  # 100ms 이상일 때만
-                        chunk_array = np.frombuffer(bytes(session_state.audio_buffer[-3200:]), dtype=np.int16)
+                    if chunk_bytes >= min_bytes:
+                        # 디버그: 수신된 오디오 레벨 확인
+                        chunk_array = np.frombuffer(audio_chunk, dtype=np.int16)
                         chunk_rms = np.sqrt(np.mean(chunk_array.astype(np.float64) ** 2)) / 32768.0
-                        if chunk_rms > 0.001:  # 침묵이 아닐 때만 로깅
-                            print(f"[Audio RX] Buffer: {buffer_bytes} bytes, Recent RMS: {chunk_rms:.6f}")
+                        audio_duration = chunk_bytes / Config.BYTES_PER_SECOND
 
-                    # 버퍼링 전략에 따른 처리 (VAD 없이 시간 기반)
-                    should_process = False
-                    is_final = False
+                        print(f"[Audio RX] Received {chunk_bytes} bytes ({audio_duration:.1f}s), RMS: {chunk_rms:.6f}")
 
-                    if session_state.primary_strategy == BufferingStrategy.CHUNK_BASED:
-                        # 1.5초 단위로 처리
-                        should_process = buffer_bytes >= Config.CHUNK_BYTES
-                        is_final = False
-                    else:
-                        # SENTENCE_BASED: 최대 버퍼에 도달하면 처리
-                        should_process = buffer_bytes >= Config.SENTENCE_MAX_BYTES
-                        is_final = True
-
-                    if should_process and buffer_bytes > 0:
-                        # 전체 버퍼 처리 (손실 없음)
-                        process_bytes = bytes(session_state.audio_buffer)
-                        session_state.audio_buffer.clear()
-
-                        # 처리 및 응답 생성
-                        for response in self._process_audio(session_state, process_bytes, is_final):
+                        # 바로 처리 (프론트엔드가 이미 utterance 단위로 전송)
+                        for response in self._process_audio(session_state, audio_chunk, True):
                             yield response
+                    else:
+                        # 너무 작으면 버퍼에 누적
+                        session_state.audio_buffer.extend(audio_chunk)
+
+                        # 누적된 버퍼가 충분하면 처리
+                        if len(session_state.audio_buffer) >= min_bytes:
+                            process_bytes = bytes(session_state.audio_buffer)
+                            session_state.audio_buffer.clear()
+
+                            chunk_array = np.frombuffer(process_bytes, dtype=np.int16)
+                            chunk_rms = np.sqrt(np.mean(chunk_array.astype(np.float64) ** 2)) / 32768.0
+                            print(f"[Audio RX] Buffered {len(process_bytes)} bytes, RMS: {chunk_rms:.6f}")
+
+                            for response in self._process_audio(session_state, process_bytes, True):
+                                yield response
 
                 # 세션 종료
                 elif payload_type == 'session_end':
