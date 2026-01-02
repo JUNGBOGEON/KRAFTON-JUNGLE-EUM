@@ -103,59 +103,70 @@ function SubtitleItem({
     showTranslation: boolean;
     onComplete: () => void;
 }) {
-    const [displayText, setDisplayText] = useState('');
-    const [isTyping, setIsTyping] = useState(true);
-    const typingRef = useRef<NodeJS.Timeout | null>(null);
+    const [displayText, setDisplayText] = useState(entry.text);
+    const [isTyping, setIsTyping] = useState(false);
     const exitRef = useRef<NodeJS.Timeout | null>(null);
-    const prevTextRef = useRef('');
+    const animationRef = useRef<number | null>(null);
     const targetTextRef = useRef(entry.text);
+    const currentIndexRef = useRef(0);
 
-    // 증분 타이핑 애니메이션 (새 글자만 추가)
+    // requestAnimationFrame 기반 부드러운 타이핑 애니메이션
     useEffect(() => {
         const newText = entry.text;
-        const prevText = prevTextRef.current;
+        const prevDisplayed = displayText;
         targetTextRef.current = newText;
 
-        // 기존 타이머 취소
-        if (typingRef.current) clearTimeout(typingRef.current);
+        // 기존 타이머/애니메이션 취소
         if (exitRef.current) clearTimeout(exitRef.current);
+        if (animationRef.current) cancelAnimationFrame(animationRef.current);
 
-        // 새 텍스트가 이전 텍스트로 시작하면 (증분 업데이트)
-        // 이전 위치부터 타이핑 시작
-        let startIndex = 0;
-        if (newText.startsWith(prevText)) {
-            startIndex = prevText.length;
-            // 이미 표시된 부분은 유지
+        // 증분 업데이트인지 확인
+        if (newText.startsWith(prevDisplayed) && prevDisplayed.length > 0) {
+            // 이전 텍스트 유지, 새 부분만 타이핑
+            currentIndexRef.current = prevDisplayed.length;
         } else {
-            // 완전히 새로운 텍스트면 처음부터
+            // 완전히 새로운 텍스트
+            currentIndexRef.current = 0;
             setDisplayText('');
-            startIndex = 0;
         }
 
-        let currentIndex = startIndex;
         setIsTyping(true);
 
-        const type = () => {
-            // targetTextRef를 확인해서 최신 텍스트와 비교
-            if (currentIndex <= targetTextRef.current.length) {
-                setDisplayText(targetTextRef.current.slice(0, currentIndex));
-                currentIndex++;
-                typingRef.current = setTimeout(type, 20); // 20ms per character
+        let lastTime = 0;
+        const CHARS_PER_FRAME = 2; // 프레임당 2글자 (더 빠르게)
+        const MIN_INTERVAL = 16; // 최소 16ms (60fps)
+
+        const animate = (timestamp: number) => {
+            if (timestamp - lastTime >= MIN_INTERVAL) {
+                lastTime = timestamp;
+                const target = targetTextRef.current;
+
+                if (currentIndexRef.current < target.length) {
+                    // 한 번에 여러 글자 추가 (부드럽게)
+                    currentIndexRef.current = Math.min(
+                        currentIndexRef.current + CHARS_PER_FRAME,
+                        target.length
+                    );
+                    setDisplayText(target.slice(0, currentIndexRef.current));
+                    animationRef.current = requestAnimationFrame(animate);
+                } else {
+                    setIsTyping(false);
+                }
             } else {
-                setIsTyping(false);
-                prevTextRef.current = targetTextRef.current;
+                animationRef.current = requestAnimationFrame(animate);
             }
         };
 
-        type();
+        animationRef.current = requestAnimationFrame(animate);
 
-        // 5초 후 자동 제거 (타이핑 완료 후부터)
+        // 5초 후 자동 제거
         exitRef.current = setTimeout(onComplete, 5000);
 
         return () => {
-            if (typingRef.current) clearTimeout(typingRef.current);
+            if (animationRef.current) cancelAnimationFrame(animationRef.current);
             if (exitRef.current) clearTimeout(exitRef.current);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [entry.text, onComplete]);
 
     return (

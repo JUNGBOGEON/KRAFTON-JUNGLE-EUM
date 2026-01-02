@@ -235,6 +235,58 @@ class Config:
         "嗯", "啊", "哦", "呃", "好", "是",
     }
 
+    # Whisper hallucination patterns to filter out
+    # These appear when audio is silent, too short, or unclear
+    HALLUCINATION_PATTERNS = {
+        # Korean hallucinations
+        "감사합니다",
+        "시청해 주셔서 감사합니다",
+        "한글자막 by",
+        "자막 by",
+        "자막 제공",
+        "구독과 좋아요",
+        "mbc 뉴스",
+        "kbs 뉴스",
+        "sbs 뉴스",
+        "이덕영입니다",
+        "끝",
+        # English hallucinations
+        "thank you",
+        "thanks for watching",
+        "thanks for listening",
+        "subscribe",
+        "please subscribe",
+        "like and subscribe",
+        "see you next time",
+        "bye",
+        "goodbye",
+        "the end",
+        "subtitles by",
+        "captions by",
+        "translated by",
+        # Japanese hallucinations
+        "ありがとうございました",
+        "ご視聴ありがとう",
+        "字幕",
+        # Chinese hallucinations
+        "谢谢",
+        "谢谢观看",
+        "感谢收看",
+        "字幕",
+        # Common noise patterns
+        "...",
+        "…",
+        "♪",
+        "♫",
+        "[音楽]",
+        "[music]",
+        "[applause]",
+        "[laughter]",
+    }
+
+    # Minimum audio duration to process (seconds) - skip very short audio
+    MIN_AUDIO_DURATION = 0.3  # 300ms minimum
+
     MIN_TTS_TEXT_LENGTH = 2
 
 
@@ -583,13 +635,46 @@ class ModelManager:
         print(f"Warmup completed in {warmup_time:.2f}s")
         print("=" * 70 + "\n")
 
+    def _is_hallucination(self, text: str) -> bool:
+        """
+        Check if the transcribed text is a Whisper hallucination.
+
+        Whisper often produces these when audio is silent, very short, or unclear.
+        """
+        if not text:
+            return False
+
+        text_lower = text.lower().strip()
+
+        # Exact match check
+        if text_lower in Config.HALLUCINATION_PATTERNS:
+            return True
+
+        # Partial match check (for patterns like "한글자막 by 한효정")
+        for pattern in Config.HALLUCINATION_PATTERNS:
+            if pattern in text_lower:
+                return True
+
+        # Check for repetitive patterns (e.g., "음 음 음 음 음")
+        words = text_lower.split()
+        if len(words) >= 3:
+            # If all words are the same (repetition)
+            if len(set(words)) == 1:
+                return True
+            # If most words are very short (likely noise)
+            short_words = sum(1 for w in words if len(w) <= 1)
+            if short_words / len(words) > 0.7:
+                return True
+
+        return False
+
     def transcribe(self, audio_data: np.ndarray, language: str) -> Tuple[str, float]:
         """
         Speech to Text using faster-whisper
 
         Args:
             audio_data: float32 normalized audio array [-1, 1]
-            language: Language code (ko, en, ja, zh, etc.)
+            language: Language code (ko, en, ja, zh, etc.) - STRICTLY enforced
 
         Returns:
             (text, confidence)
@@ -606,21 +691,34 @@ class ModelManager:
             "samples": len(audio_data),
             "duration_sec": f"{audio_duration:.2f}",
             "rms": f"{audio_rms:.4f}",
-            "max": f"{np.max(np.abs(audio_data)):.4f}"
+            "max": f"{np.max(np.abs(audio_data)):.4f}",
+            "language": language
         })
 
+        # Skip if audio is too quiet (silence)
         if audio_rms < 0.001:
             DebugLogger.log("STT_SKIP", "Silence detected, skipping", {"rms": f"{audio_rms:.6f}"})
             return "", 0.0
 
+        # Skip if audio is too short (prevents hallucinations)
+        if audio_duration < Config.MIN_AUDIO_DURATION:
+            DebugLogger.log("STT_SKIP", "Audio too short, skipping", {
+                "duration": f"{audio_duration:.2f}",
+                "min_required": Config.MIN_AUDIO_DURATION
+            })
+            return "", 0.0
+
         try:
             if self.whisper_model:
-                # Use faster-whisper
+                # Get the Whisper language code
                 whisper_lang = Config.WHISPER_LANG_CODES.get(language, "en")
 
+                DebugLogger.log("STT_LANG", f"Using language: {whisper_lang} (from: {language})")
+
+                # Use faster-whisper with STRICT language enforcement
                 segments, info = self.whisper_model.transcribe(
                     audio_data,
-                    language=whisper_lang,
+                    language=whisper_lang,  # FORCE this language (no auto-detect)
                     beam_size=5,
                     best_of=5,
                     vad_filter=True,  # Built-in VAD for noise filtering
@@ -629,14 +727,47 @@ class ModelManager:
                         speech_pad_ms=200,
                     ),
                     condition_on_previous_text=False,  # Disable for real-time
+                    without_timestamps=True,  # Faster processing
+                    suppress_blank=True,  # Suppress blank outputs
+                    # Suppress common hallucination tokens
+                    suppress_tokens=[-1],  # Let VAD handle this
+                    no_speech_threshold=0.5,  # Higher threshold to filter out non-speech
+                    log_prob_threshold=-0.8,  # Filter low-confidence segments
+                    compression_ratio_threshold=2.0,  # Filter repetitive segments
                 )
 
                 # Collect all segments
                 texts = []
                 for segment in segments:
-                    texts.append(segment.text.strip())
+                    segment_text = segment.text.strip()
+
+                    # Skip segments with low probability or that are hallucinations
+                    if segment.no_speech_prob > 0.5:
+                        DebugLogger.log("STT_FILTER", f"Filtered high no_speech_prob segment", {
+                            "text": segment_text[:30],
+                            "no_speech_prob": f"{segment.no_speech_prob:.2f}"
+                        })
+                        continue
+
+                    # Check for hallucination
+                    if self._is_hallucination(segment_text):
+                        DebugLogger.log("STT_FILTER", f"Filtered hallucination", {
+                            "text": segment_text[:50]
+                        })
+                        continue
+
+                    if segment_text:
+                        texts.append(segment_text)
 
                 result_text = " ".join(texts).strip()
+
+                # Final hallucination check on combined text
+                if self._is_hallucination(result_text):
+                    DebugLogger.log("STT_FILTER", f"Filtered combined hallucination", {
+                        "text": result_text[:50]
+                    })
+                    result_text = ""
+
                 confidence = info.language_probability if info.language_probability else 0.95
 
             else:
@@ -649,7 +780,7 @@ class ModelManager:
             if result_text:
                 DebugLogger.stt_result(result_text, confidence, latency_ms)
             else:
-                DebugLogger.log("STT_EMPTY", f"No text detected", {"latency_ms": f"{latency_ms:.0f}"})
+                DebugLogger.log("STT_EMPTY", f"No valid text detected", {"latency_ms": f"{latency_ms:.0f}"})
 
             return result_text, confidence
 
