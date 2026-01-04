@@ -754,57 +754,65 @@ func (r *Room) handleTranscript(t *ai.TranscriptMessage) {
 		speakerName = t.Speaker.ParticipantId // 또는 Speaker.Nickname이 있으면 사용
 	}
 
-	// Broadcast original transcript to all
-	r.Broadcast(&BroadcastMessage{
-		Type:      "transcript",
-		SpeakerID: speakerID,
-		Data: TranscriptData{
-			ParticipantID: speakerID,
-			Original:      t.OriginalText,
-			IsFinal:       t.IsFinal,
-			Language:      t.OriginalLanguage,
-		},
-	})
+	// 번역이 있는 경우: 번역된 메시지만 전송 (원본 포함됨)
+	// 번역이 없는 경우: 원본만 전송
+	if len(t.Translations) > 0 {
+		// Broadcast translations to each target language (includes original)
+		for _, trans := range t.Translations {
+			r.Broadcast(&BroadcastMessage{
+				Type:       "transcript",
+				SpeakerID:  speakerID,
+				TargetLang: trans.TargetLanguage,
+				Data: TranscriptData{
+					ParticipantID: speakerID,
+					Original:      t.OriginalText,
+					Translated:    trans.TranslatedText,
+					IsFinal:       t.IsFinal,
+					Language:      t.OriginalLanguage,
+				},
+			})
+		}
 
-	// Save to Redis (only final transcripts to reduce writes)
-	if t.IsFinal && r.hub.redisClient != nil {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
+		// Save translated transcript to Redis (only once per translation)
+		if t.IsFinal && r.hub.redisClient != nil {
+			for _, trans := range t.Translations {
+				go func(targetLang, translatedText string) {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
 
-			transcript := &cache.RoomTranscript{
-				RoomID:      r.ID,
-				SpeakerID:   speakerID,
-				SpeakerName: speakerName,
-				Original:    t.OriginalText,
-				SourceLang:  t.OriginalLanguage,
-				IsFinal:     t.IsFinal,
+					transcript := &cache.RoomTranscript{
+						RoomID:      r.ID,
+						SpeakerID:   speakerID,
+						SpeakerName: speakerName,
+						Original:    t.OriginalText,
+						Translated:  translatedText,
+						SourceLang:  t.OriginalLanguage,
+						TargetLang:  targetLang,
+						IsFinal:     t.IsFinal,
+					}
+
+					if err := r.hub.redisClient.AddTranscript(ctx, r.ID, transcript); err != nil {
+						log.Printf("[Room %s] Failed to save translated transcript to Redis: %v", r.ID, err)
+					}
+				}(trans.TargetLanguage, trans.TranslatedText)
 			}
-
-			if err := r.hub.redisClient.AddTranscript(ctx, r.ID, transcript); err != nil {
-				log.Printf("[Room %s] Failed to save transcript to Redis: %v", r.ID, err)
-			}
-		}()
-	}
-
-	// Broadcast translations to each target language
-	for _, trans := range t.Translations {
+		}
+	} else {
+		// No translations - broadcast original only
 		r.Broadcast(&BroadcastMessage{
-			Type:       "transcript",
-			SpeakerID:  speakerID,
-			TargetLang: trans.TargetLanguage,
+			Type:      "transcript",
+			SpeakerID: speakerID,
 			Data: TranscriptData{
 				ParticipantID: speakerID,
 				Original:      t.OriginalText,
-				Translated:    trans.TranslatedText,
 				IsFinal:       t.IsFinal,
-				Language:      t.OriginalLanguage, // Use source language, not target language
+				Language:      t.OriginalLanguage,
 			},
 		})
 
-		// Save translated transcript to Redis
+		// Save original to Redis
 		if t.IsFinal && r.hub.redisClient != nil {
-			go func(targetLang, translatedText string) {
+			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
 
@@ -813,16 +821,14 @@ func (r *Room) handleTranscript(t *ai.TranscriptMessage) {
 					SpeakerID:   speakerID,
 					SpeakerName: speakerName,
 					Original:    t.OriginalText,
-					Translated:  translatedText,
 					SourceLang:  t.OriginalLanguage,
-					TargetLang:  targetLang,
 					IsFinal:     t.IsFinal,
 				}
 
 				if err := r.hub.redisClient.AddTranscript(ctx, r.ID, transcript); err != nil {
-					log.Printf("[Room %s] Failed to save translated transcript to Redis: %v", r.ID, err)
+					log.Printf("[Room %s] Failed to save transcript to Redis: %v", r.ID, err)
 				}
-			}(trans.TargetLanguage, trans.TranslatedText)
+			}()
 		}
 	}
 }
