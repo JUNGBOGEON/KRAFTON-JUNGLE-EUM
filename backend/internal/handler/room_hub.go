@@ -10,6 +10,8 @@ import (
 	"github.com/gofiber/contrib/websocket"
 
 	"realtime-backend/internal/ai"
+	awsai "realtime-backend/internal/aws"
+	"realtime-backend/internal/config"
 )
 
 // =============================================================================
@@ -20,22 +22,25 @@ import (
 type RoomHub struct {
 	rooms    map[string]*Room
 	mu       sync.RWMutex
-	aiClient *ai.GrpcClient
+	aiClient *ai.GrpcClient  // Python gRPC 클라이언트
+	useAWS   bool            // AWS 직접 사용 여부
+	cfg      *config.Config  // 앱 설정
 }
 
 // Room represents a single room with listeners and speakers
 type Room struct {
-	ID         string
-	Listeners  map[string]*Listener
-	Speakers   map[string]*Speaker
-	grpcStream *ai.ChatStream
-	broadcast  chan *BroadcastMessage
-	audioIn    chan *AudioMessage
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
-	hub        *RoomHub
-	isRunning  bool
+	ID          string
+	Listeners   map[string]*Listener
+	Speakers    map[string]*Speaker
+	grpcStream  *ai.ChatStream     // Python gRPC 스트림
+	awsPipeline *awsai.Pipeline    // AWS 파이프라인
+	broadcast   chan *BroadcastMessage
+	audioIn     chan *AudioMessage
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.RWMutex
+	hub         *RoomHub
+	isRunning   bool
 }
 
 // Listener represents a user receiving translations
@@ -80,10 +85,12 @@ type TranscriptData struct {
 }
 
 // NewRoomHub creates a new RoomHub instance
-func NewRoomHub(aiClient *ai.GrpcClient) *RoomHub {
+func NewRoomHub(aiClient *ai.GrpcClient, cfg *config.Config, useAWS bool) *RoomHub {
 	return &RoomHub{
 		rooms:    make(map[string]*Room),
 		aiClient: aiClient,
+		cfg:      cfg,
+		useAWS:   useAWS,
 	}
 }
 
@@ -162,8 +169,49 @@ func (r *Room) RemoveListener(listenerID string) {
 	log.Printf("[Room %s] Removed listener: %s, remaining: %d",
 		r.ID, listenerID, len(r.Listeners))
 
+	// Update target languages in AWS pipeline
+	if r.hub.useAWS && r.awsPipeline != nil {
+		targetLangs := make([]string, 0)
+		for _, l := range r.Listeners {
+			targetLangs = append(targetLangs, l.TargetLang)
+		}
+		r.awsPipeline.UpdateTargetLanguages(targetLangs)
+	}
+
 	// If no listeners and no speakers, cleanup room
 	if len(r.Listeners) == 0 && len(r.Speakers) == 0 {
+		go r.hub.RemoveRoom(r.ID)
+	}
+}
+
+// RemoveSpeaker removes a speaker from the room and closes their Transcribe stream
+func (r *Room) RemoveSpeaker(speakerID string) {
+	r.mu.Lock()
+	speaker, exists := r.Speakers[speakerID]
+	if exists {
+		delete(r.Speakers, speakerID)
+	}
+	pipeline := r.awsPipeline
+	r.mu.Unlock()
+
+	if !exists {
+		return
+	}
+
+	// Close the speaker's Transcribe stream (AWS mode)
+	if r.hub.useAWS && pipeline != nil {
+		pipeline.RemoveSpeakerStream(speakerID, speaker.SourceLang)
+		log.Printf("[Room %s] Closed Transcribe stream for speaker: %s", r.ID, speakerID)
+	}
+
+	log.Printf("[Room %s] Removed speaker: %s", r.ID, speakerID)
+
+	// If no listeners and no speakers, cleanup room
+	r.mu.RLock()
+	isEmpty := len(r.Listeners) == 0 && len(r.Speakers) == 0
+	r.mu.RUnlock()
+
+	if isEmpty {
 		go r.hub.RemoveRoom(r.ID)
 	}
 }
@@ -226,6 +274,15 @@ func (r *Room) Broadcast(msg *BroadcastMessage) {
 // Shutdown gracefully shuts down the room
 func (r *Room) Shutdown() {
 	r.cancel()
+
+	// Close AWS pipeline if exists
+	r.mu.Lock()
+	if r.awsPipeline != nil {
+		r.awsPipeline.Close()
+		r.awsPipeline = nil
+	}
+	r.mu.Unlock()
+
 	close(r.broadcast)
 	close(r.audioIn)
 	r.isRunning = false
@@ -296,12 +353,12 @@ func (r *Room) sendToListener(listener *Listener, msg *BroadcastMessage) {
 
 // runAudioProcessor processes incoming audio and sends to AI server
 func (r *Room) runAudioProcessor() {
-	log.Printf("[Room %s] Audio processor started", r.ID)
+	log.Printf("[Room %s] Audio processor started (useAWS: %v)", r.ID, r.hub.useAWS)
 	defer log.Printf("[Room %s] Audio processor stopped", r.ID)
 
-	// Start gRPC stream to AI server
-	if err := r.startGrpcStream(); err != nil {
-		log.Printf("[Room %s] Failed to start gRPC stream: %v", r.ID, err)
+	// Start AI stream (AWS or gRPC)
+	if err := r.startStream(); err != nil {
+		log.Printf("[Room %s] Failed to start stream: %v", r.ID, err)
 		return
 	}
 
@@ -316,6 +373,14 @@ func (r *Room) runAudioProcessor() {
 			r.processAudio(audioMsg)
 		}
 	}
+}
+
+// startStream starts either AWS pipeline or gRPC stream
+func (r *Room) startStream() error {
+	if r.hub.useAWS {
+		return r.startAWSPipeline()
+	}
+	return r.startGrpcStream()
 }
 
 func (r *Room) startGrpcStream() error {
@@ -344,7 +409,7 @@ func (r *Room) startGrpcStream() error {
 	r.mu.RUnlock()
 
 	// Create session config for gRPC stream
-	config := &ai.SessionConfig{
+	sessionCfg := &ai.SessionConfig{
 		SampleRate:     16000,
 		Channels:       1,
 		BitsPerSample:  16,
@@ -357,7 +422,7 @@ func (r *Room) startGrpcStream() error {
 		},
 	}
 
-	stream, err := r.hub.aiClient.StartChatStream(r.ctx, "room-"+r.ID, r.ID, config)
+	stream, err := r.hub.aiClient.StartChatStream(r.ctx, "room-"+r.ID, r.ID, sessionCfg)
 	if err != nil {
 		return err
 	}
@@ -370,6 +435,81 @@ func (r *Room) startGrpcStream() error {
 	go r.receiveGrpcResponses()
 
 	return nil
+}
+
+// startAWSPipeline starts AWS AI pipeline for the room
+func (r *Room) startAWSPipeline() error {
+	if r.hub.cfg == nil {
+		log.Printf("[Room %s] Config not available for AWS pipeline", r.ID)
+		return nil
+	}
+
+	// Get target languages for this room
+	targetLangs := r.GetTargetLanguages()
+	if len(targetLangs) == 0 {
+		targetLangs = []string{"en"} // Default
+	}
+
+	pipelineCfg := &awsai.PipelineConfig{
+		TargetLanguages: targetLangs,
+		SampleRate:      16000,
+	}
+
+	pipeline, err := awsai.NewPipeline(r.ctx, r.hub.cfg, pipelineCfg)
+	if err != nil {
+		log.Printf("[Room %s] Failed to create AWS pipeline: %v", r.ID, err)
+		return err
+	}
+
+	r.mu.Lock()
+	r.awsPipeline = pipeline
+	r.mu.Unlock()
+
+	// Start receiving responses from AWS pipeline
+	go r.receiveAWSResponses()
+
+	log.Printf("[Room %s] AWS pipeline started with targets: %v", r.ID, targetLangs)
+	return nil
+}
+
+// receiveAWSResponses handles responses from AWS pipeline
+func (r *Room) receiveAWSResponses() {
+	r.mu.RLock()
+	pipeline := r.awsPipeline
+	r.mu.RUnlock()
+
+	if pipeline == nil {
+		return
+	}
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+
+		case transcript, ok := <-pipeline.TranscriptChan:
+			if !ok {
+				log.Printf("[Room %s] AWS TranscriptChan closed", r.ID)
+				return
+			}
+			r.handleTranscript(transcript)
+
+		case audio, ok := <-pipeline.AudioChan:
+			if !ok {
+				log.Printf("[Room %s] AWS AudioChan closed", r.ID)
+				return
+			}
+			r.handleAudio(audio)
+
+		case err, ok := <-pipeline.ErrChan:
+			if !ok {
+				return
+			}
+			if err != nil {
+				log.Printf("[Room %s] AWS pipeline error: %v", r.ID, err)
+			}
+		}
+	}
 }
 
 func (r *Room) receiveGrpcResponses() {
@@ -457,6 +597,38 @@ func (r *Room) handleAudio(audio *ai.AudioMessage) {
 }
 
 func (r *Room) processAudio(msg *AudioMessage) {
+	if r.hub.useAWS {
+		r.processAudioAWS(msg)
+	} else {
+		r.processAudioGRPC(msg)
+	}
+}
+
+// processAudioAWS sends audio to AWS pipeline
+func (r *Room) processAudioAWS(msg *AudioMessage) {
+	r.mu.RLock()
+	pipeline := r.awsPipeline
+	speaker := r.Speakers[msg.SpeakerID]
+	r.mu.RUnlock()
+
+	if pipeline == nil {
+		log.Printf("[Room %s] No AWS pipeline, audio dropped", r.ID)
+		return
+	}
+
+	// Speaker 정보 결정
+	speakerName := msg.SpeakerID
+	if speaker != nil && speaker.Nickname != "" {
+		speakerName = speaker.Nickname
+	}
+
+	if err := pipeline.ProcessAudio(msg.SpeakerID, msg.SourceLang, speakerName, msg.AudioData); err != nil {
+		log.Printf("[Room %s] AWS pipeline error: %v", r.ID, err)
+	}
+}
+
+// processAudioGRPC sends audio to Python gRPC server
+func (r *Room) processAudioGRPC(msg *AudioMessage) {
 	r.mu.RLock()
 	stream := r.grpcStream
 	// Speaker 정보 가져오기

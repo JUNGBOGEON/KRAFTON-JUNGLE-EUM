@@ -26,21 +26,29 @@ type AudioHandler struct {
 func NewAudioHandler(cfg *config.Config) *AudioHandler {
 	handler := &AudioHandler{cfg: cfg}
 
-	// AI 서버 연결 (활성화된 경우)
+	// AI 모드 결정
 	if cfg.AI.Enabled {
-		client, err := ai.NewGrpcClient(cfg.AI.ServerAddr)
-		if err != nil {
-			log.Printf("⚠️ Failed to connect to AI server: %v (running in echo mode)", err)
+		if cfg.AI.UseAWS {
+			// AWS 직접 사용 모드
+			log.Println("☁️ AWS AI services mode enabled (Transcribe/Translate/Polly)")
+			handler.roomHub = NewRoomHub(nil, cfg, true)
 		} else {
-			handler.aiClient = client
-			log.Printf("🤖 Connected to AI server at %s", cfg.AI.ServerAddr)
+			// Python gRPC 서버 모드
+			client, err := ai.NewGrpcClient(cfg.AI.ServerAddr)
+			if err != nil {
+				log.Printf("⚠️ Failed to connect to AI server: %v (running in echo mode)", err)
+				handler.roomHub = NewRoomHub(nil, cfg, false)
+			} else {
+				handler.aiClient = client
+				log.Printf("🤖 Connected to AI server at %s", cfg.AI.ServerAddr)
+				handler.roomHub = NewRoomHub(client, cfg, false)
+			}
 		}
 	} else {
-		log.Println("ℹ️ AI server disabled, running in echo mode")
+		log.Println("ℹ️ AI disabled, running in echo mode")
+		handler.roomHub = NewRoomHub(nil, cfg, false)
 	}
 
-	// RoomHub 초기화 (Room 기반 연결 관리)
-	handler.roomHub = NewRoomHub(handler.aiClient)
 	log.Println("🏠 RoomHub initialized for room-based connections")
 
 	return handler
@@ -715,7 +723,8 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 				ProfileImg string `json:"profileImg"`
 			}
 			if err := json.Unmarshal(msg, &controlMsg); err == nil {
-				if controlMsg.Type == "speaker_info" {
+				switch controlMsg.Type {
+				case "speaker_info":
 					room.AddOrUpdateSpeaker(
 						controlMsg.SpeakerID,
 						controlMsg.SourceLang,
@@ -724,6 +733,11 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 					)
 					log.Printf("📢 [Room %s] Speaker info updated: %s (%s)",
 						roomID, controlMsg.Nickname, controlMsg.SourceLang)
+
+				case "speaker_leave":
+					// 스피커가 방을 나갔을 때 Transcribe 스트림 종료
+					room.RemoveSpeaker(controlMsg.SpeakerID)
+					log.Printf("👋 [Room %s] Speaker left: %s", roomID, controlMsg.SpeakerID)
 				}
 			}
 		}

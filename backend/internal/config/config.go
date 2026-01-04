@@ -51,6 +51,7 @@ type AuthConfig struct {
 type AIConfig struct {
 	ServerAddr string
 	Enabled    bool
+	UseAWS     bool // true: AWS 직접 사용, false: Python gRPC 서버 사용
 }
 
 // ServerConfig HTTP 서버 설정
@@ -122,6 +123,7 @@ func Load() *Config {
 		AI: AIConfig{
 			ServerAddr: getEnv("AI_SERVER_ADDR", "localhost:50051"),
 			Enabled:    getBool("AI_ENABLED", false),
+			UseAWS:     getBool("AI_USE_AWS", false),
 		},
 		Auth: AuthConfig{
 			JWTSecret:          jwtSecret,
