@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
+import PollsTab from './PollsTab';
 
 interface ChatMessage {
     id: string;
@@ -29,7 +30,7 @@ interface ChatPanelProps {
     voiceRecords?: VoiceRecord[];
 }
 
-type TabType = 'chat' | 'voice';
+type TabType = 'chat' | 'voice' | 'polls';
 
 export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords = [] }: ChatPanelProps) {
     const room = useRoomContext();
@@ -172,21 +173,19 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                     <div className="flex gap-1 p-1 bg-black/5 rounded-lg">
                         <button
                             onClick={() => setActiveTab('chat')}
-                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                                activeTab === 'chat'
-                                    ? 'bg-white text-black shadow-sm'
-                                    : 'text-black/50 hover:text-black/70'
-                            }`}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'chat'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-black/50 hover:text-black/70'
+                                }`}
                         >
                             채팅
                         </button>
                         <button
                             onClick={() => setActiveTab('voice')}
-                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
-                                activeTab === 'voice'
-                                    ? 'bg-white text-black shadow-sm'
-                                    : 'text-black/50 hover:text-black/70'
-                            }`}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${activeTab === 'voice'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-black/50 hover:text-black/70'
+                                }`}
                         >
                             음성 기록
                             {voiceRecords.length > 0 && (
@@ -194,6 +193,15 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                                     {voiceRecords.length}
                                 </span>
                             )}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('polls')}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'polls'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-black/50 hover:text-black/70'
+                                }`}
+                        >
+                            투표
                         </button>
                     </div>
                     <button
@@ -236,11 +244,10 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                                         <span className="text-[11px] text-black/40 mb-1 ml-3 font-medium">{msg.sender}</span>
                                     )}
                                     <div
-                                        className={`max-w-[80%] px-4 py-2.5 ${
-                                            msg.isOwn
-                                                ? 'bg-black text-white rounded-2xl rounded-br-sm'
-                                                : 'bg-black/[0.04] text-black rounded-2xl rounded-bl-sm'
-                                        }`}
+                                        className={`max-w-[80%] px-4 py-2.5 ${msg.isOwn
+                                            ? 'bg-black text-white rounded-2xl rounded-br-sm'
+                                            : 'bg-black/[0.04] text-black rounded-2xl rounded-bl-sm'
+                                            }`}
                                     >
                                         <p className="text-[13px] leading-relaxed break-words">{msg.content}</p>
                                     </div>
@@ -277,7 +284,7 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                         </div>
                     </div>
                 </>
-            ) : (
+            ) : activeTab === 'voice' ? (
                 /* Voice Records */
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                     {voiceRecords.length === 0 ? (
@@ -331,6 +338,9 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                     )}
                     <div ref={voiceEndRef} />
                 </div>
+            ) : (
+                /* Polls Tab */
+                <PollsTab roomId={roomId} />
             )}
         </div>
     );

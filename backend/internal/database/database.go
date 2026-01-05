@@ -88,6 +88,10 @@ func ConnectDB() (*gorm.DB, error) {
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.Workspace{},
+		// Polls
+		&model.Poll{},
+		&model.PollOption{},
+		&model.PollVote{},
 		&model.Role{},
 		&model.RolePermission{},
 		&model.WorkspaceMember{},

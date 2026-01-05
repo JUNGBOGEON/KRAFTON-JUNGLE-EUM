@@ -55,6 +55,36 @@ export default function CustomVideoConference({
     const connectionState = useConnectionState();
     const participants = useParticipants();
     const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
+    const [isHandRaised, setIsHandRaised] = useState(false);
+
+    // 손들기 상태 변경 핸들러
+    const toggleRaiseHand = async () => {
+        if (!localParticipant) return;
+
+        const newState = !isHandRaised;
+        setIsHandRaised(newState);
+
+        try {
+            // 기존 메타데이터 유지하면서 handRaised 필드 업데이트
+            let currentMetadata = {};
+            if (localParticipant.metadata) {
+                try {
+                    currentMetadata = JSON.parse(localParticipant.metadata);
+                } catch { /* ignore */ }
+            }
+
+            const newMetadata = JSON.stringify({
+                ...currentMetadata,
+                handRaised: newState
+            });
+
+            await localParticipant.setMetadata(newMetadata);
+        } catch (error) {
+            console.error("Failed to update raise hand metadata:", error);
+            // 실패 시 UI 롤백
+            setIsHandRaised(!newState);
+        }
+    };
 
     const tracks = useTracks(
         [
@@ -164,6 +194,8 @@ export default function CustomVideoConference({
                 onToggleMic={() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)}
                 onToggleCam={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
                 onToggleScreen={() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled)}
+                isHandRaised={isHandRaised}
+                onToggleHand={toggleRaiseHand}
                 onToggleChat={onToggleChat}
                 onToggleWhiteboard={onToggleWhiteboard}
                 onToggleTranslation={onToggleTranslation}
@@ -206,6 +238,7 @@ function CustomParticipantTile({
     // 로컬 참가자인지 확인하고 프로필 이미지 결정
     const isLocalParticipant = participant.identity === localParticipantIdentity;
     let profileImg: string | undefined;
+    let isHandRaised = false;
 
     if (isLocalParticipant && currentUser?.profileImg) {
         // 로컬 참가자면 currentUser에서 프로필 이미지 가져오기
@@ -216,6 +249,7 @@ function CustomParticipantTile({
             if (participant.metadata) {
                 const metadata = JSON.parse(participant.metadata);
                 profileImg = metadata.profileImg;
+                isHandRaised = !!metadata.handRaised;
             }
         } catch (e) {
             // 메타데이터 파싱 실패 시 무시
@@ -238,6 +272,17 @@ function CustomParticipantTile({
             <div className={`absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] transition-opacity duration-300 ${hasActiveVideoTrack ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                 {/* 프로필 아바타 */}
                 <div className={`relative mb-4 rounded-full ${isSpeaking ? 'ring-[3px] ring-green-400 ring-offset-2 ring-offset-[#1a1a1a]' : ''}`}>
+                    {/* Hand Raised Indicator (Camera OFF) */}
+                    {isHandRaised && (
+                        <div className="absolute -top-1 -right-1 w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center shadow-lg z-10 animate-bounce ring-2 ring-[#1a1a1a]">
+                            <svg className="w-5 h-5 text-black" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.914a1 1 0 001.581.814l3.543-2.657A1 1 0 0115.5 5v.5a1.5 1.5 0 003 0V5a3 3 0 00-3-3h-1.5a1 1 0 00-1 1v1z" clipRule="evenodd" />
+                                <path d="M10 3a1 1 0 102 0v6.75a6.25 6.25 0 11-12.5 0V3a1 1 0 012 0v5.5a.5.5 0 001 0V3a1 1 0 012 0v5.5a.5.5 0 001 0V3z" />
+                                {/* Simple Hand Icon */}
+                                <path fillRule="evenodd" d="M9 3a1 1 0 012 0v5.5a.5.5 0 001 0V4a1 1 0 012 0v5.5a.5.5 0 001 0V6a1 1 0 112 0v5a7.5 7.5 0 00-15 0V6a1 1 0 012 0v5.5a.5.5 0 001 0V3a1 1 0 012 0v5.5a.5.5 0 001 0V3z" clipRule="evenodd" />
+                            </svg>
+                        </div>
+                    )}
                     {profileImg ? (
                         <img
                             src={profileImg}
@@ -284,6 +329,14 @@ function CustomParticipantTile({
                             <span className="text-white text-sm font-medium truncate">{displayName}</span>
                         </div>
                         <SpeakingIndicator participant={participant} />
+                        {/* Hand Raised Indicator (Camera ON) */}
+                        {isHandRaised && (
+                            <div className="ml-2 bg-yellow-400 text-black p-1 rounded-full shadow-lg">
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M9 3a1 1 0 012 0v5.5a.5.5 0 001 0V4a1 1 0 012 0v5.5a.5.5 0 001 0V6a1 1 0 112 0v5a7.5 7.5 0 00-15 0V6a1 1 0 012 0v5.5a.5.5 0 001 0V3a1 1 0 012 0v5.5a.5.5 0 001 0V3z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -336,9 +389,11 @@ function ControlBarComponent({
     isMicEnabled?: boolean;
     isCamEnabled?: boolean;
     isScreenEnabled?: boolean;
+    isHandRaised?: boolean;
     onToggleMic?: () => void;
     onToggleCam?: () => void;
     onToggleScreen?: () => void;
+    onToggleHand?: () => void;
     onToggleChat?: () => void;
     onToggleWhiteboard?: () => void;
     onToggleTranslation?: () => void;
@@ -446,11 +501,10 @@ function ControlBarComponent({
                         {/* 번역 토글 버튼 */}
                         <button
                             onClick={onToggleTranslation}
-                            className={`p-3.5 rounded-l-xl transition-colors ${
-                                isTranslationOpen
-                                    ? 'bg-blue-500 text-white'
-                                    : '!bg-transparent hover:bg-black/10 !text-black'
-                            }`}
+                            className={`p-3.5 rounded-l-xl transition-colors ${isTranslationOpen
+                                ? 'bg-blue-500 text-white'
+                                : '!bg-transparent hover:bg-black/10 !text-black'
+                                }`}
                             title="실시간 번역"
                         >
                             {isTranslationOpen ? (
@@ -467,11 +521,10 @@ function ControlBarComponent({
                         {/* 언어 선택 버튼 */}
                         <button
                             onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-                            className={`px-2 py-3.5 rounded-r-xl transition-colors flex items-center gap-1 ${
-                                isTranslationOpen
-                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                    : '!bg-transparent hover:bg-black/10 !text-black border-l border-black/10'
-                            }`}
+                            className={`px-2 py-3.5 rounded-r-xl transition-colors flex items-center gap-1 ${isTranslationOpen
+                                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                : '!bg-transparent hover:bg-black/10 !text-black border-l border-black/10'
+                                }`}
                             title="언어 설정"
                         >
                             <span className="text-xs">{currentSourceLang.flag}→{currentTargetLang.flag}</span>
@@ -498,9 +551,8 @@ function ControlBarComponent({
                                             setShowLanguageMenu(false);
                                         }
                                     }}
-                                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-black/5 transition-colors ${
-                                        sourceLanguage === lang.code ? 'bg-green-50 text-green-600' : 'text-black'
-                                    }`}
+                                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-black/5 transition-colors ${sourceLanguage === lang.code ? 'bg-green-50 text-green-600' : 'text-black'
+                                        }`}
                                 >
                                     <span>{lang.flag}</span>
                                     <span>{lang.name}</span>
@@ -525,9 +577,8 @@ function ControlBarComponent({
                                         onTargetLanguageChange?.(lang.code);
                                         setShowLanguageMenu(false);
                                     }}
-                                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-black/5 transition-colors ${
-                                        targetLanguage === lang.code ? 'bg-blue-50 text-blue-600' : 'text-black'
-                                    }`}
+                                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-black/5 transition-colors ${targetLanguage === lang.code ? 'bg-blue-50 text-blue-600' : 'text-black'
+                                        }`}
                                 >
                                     <span>{lang.flag}</span>
                                     <span>{lang.name}</span>

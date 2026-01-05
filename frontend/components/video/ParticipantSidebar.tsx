@@ -73,6 +73,14 @@ export default function ParticipantSidebar({ maxVisible = 4 }: ParticipantSideba
                     const trackRef = getTrackForParticipant(participant);
                     const isLocal = participant.identity === localParticipant?.identity;
                     const videoTrack = trackRef?.publication?.track;
+                    let isHandRaised = false;
+
+                    try {
+                        if (participant.metadata) {
+                            const metadata = JSON.parse(participant.metadata);
+                            isHandRaised = !!metadata.handRaised;
+                        }
+                    } catch { /* ignore */ }
 
                     return (
                         <div
@@ -93,8 +101,11 @@ export default function ParticipantSidebar({ maxVisible = 4 }: ParticipantSideba
                             {/* 이름 라벨 */}
                             <div className="absolute bottom-1.5 left-1.5 right-1.5">
                                 <div className="bg-black/40 backdrop-blur-md px-2 py-0.5 rounded-lg border border-white/10">
-                                    <p className="text-white text-[10px] font-medium truncate text-center">
+                                    <p className="text-white text-[10px] font-medium truncate text-center flex items-center justify-center gap-1">
                                         {isLocal ? '나' : (participant.name || participant.identity)}
+                                        {isHandRaised && (
+                                            <span className="text-yellow-400">✋</span>
+                                        )}
                                     </p>
                                 </div>
                             </div>

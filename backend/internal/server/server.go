@@ -18,9 +18,9 @@ import (
 	"realtime-backend/internal/auth"
 	"realtime-backend/internal/config"
 	"realtime-backend/internal/handler"
+	"realtime-backend/internal/middleware"
 	"realtime-backend/internal/model"
 	"realtime-backend/internal/presence"
-	"realtime-backend/internal/middleware"
 	"realtime-backend/internal/service"
 	"realtime-backend/internal/storage"
 )
@@ -44,6 +44,7 @@ type Server struct {
 	roleHandler                *handler.RoleHandler
 	videoHandler               *handler.VideoHandler
 	whiteboardHandler          *handler.WhiteboardHandler
+	pollHandler                *handler.PollHandler
 	voiceRecordHandler         *handler.VoiceRecordHandler
 	voiceParticipantsWSHandler *handler.VoiceParticipantsWSHandler
 	healthHandler              *handler.HealthHandler
@@ -95,6 +96,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	roleHandler := handler.NewRoleHandler(db)
 	videoHandler := handler.NewVideoHandler(cfg, db)
 	whiteboardHandler := handler.NewWhiteboardHandler(db)
+	pollHandler := handler.NewPollHandler(cfg, db)
 	voiceRecordHandler := handler.NewVoiceRecordHandler(db)
 	voiceParticipantsWSHandler := handler.NewVoiceParticipantsWSHandler(cfg)
 
@@ -136,6 +138,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 		roleHandler:                roleHandler,
 		videoHandler:               videoHandler,
 		whiteboardHandler:          whiteboardHandler,
+		pollHandler:                pollHandler,
 		voiceRecordHandler:         voiceRecordHandler,
 		voiceParticipantsWSHandler: voiceParticipantsWSHandler,
 		healthHandler:              healthHandler,
@@ -174,8 +177,8 @@ func (s *Server) SetupMiddleware() {
 // SetupRoutes 라우트 설정
 func (s *Server) SetupRoutes() {
 	// 헬스체크 엔드포인트
-	s.app.Get("/", s.healthHandler.Liveness)           // ALB 헬스체크용
-	s.app.Get("/health", s.healthHandler.Check)        // 전체 상태 (DB + AI)
+	s.app.Get("/", s.healthHandler.Liveness)              // ALB 헬스체크용
+	s.app.Get("/health", s.healthHandler.Check)           // 전체 상태 (DB + AI)
 	s.app.Get("/health/live", s.healthHandler.Liveness)   // K8s liveness probe
 	s.app.Get("/health/ready", s.healthHandler.Readiness) // K8s readiness probe
 
@@ -284,6 +287,13 @@ func (s *Server) SetupRoutes() {
 	s.app.Post("/api/video/token", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GenerateToken)
 	s.app.Get("/api/video/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetRoomParticipants)
 	s.app.Get("/api/video/rooms/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetAllRoomsParticipants)
+
+	// Poll Routes
+	pollGroup := s.app.Group("/api/polls", auth.AuthMiddleware(s.jwtManager))
+	pollGroup.Post("/", s.pollHandler.CreatePoll)
+	pollGroup.Get("/", s.pollHandler.GetActivePolls)
+	pollGroup.Post("/vote", s.pollHandler.VotePoll)
+	pollGroup.Post("/:id/close", s.pollHandler.ClosePoll)
 
 	// Whiteboard 라우트
 	// Whiteboard 라우트
