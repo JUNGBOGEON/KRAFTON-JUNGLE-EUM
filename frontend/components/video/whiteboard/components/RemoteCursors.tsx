@@ -68,6 +68,20 @@ function HandIcon() {
     );
 }
 
+function MagicPenIcon() {
+    return (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+            <path
+                d="M21.64 3.64l-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72zM14 7l3 3M5 6v4M19 14v4M10 2v2M7 8H3M21 16h-4M11 3H9"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
+}
+
 export function CursorVisual({ color, name, tool, penColor, isDrawing, isLocal, showArrow = true }: {
     color: string;
     name: string;
@@ -107,6 +121,7 @@ export function CursorVisual({ color, name, tool, penColor, isDrawing, isLocal, 
                     {tool === 'pen' && <PenIcon color={penColor || 'white'} />}
                     {tool === 'eraser' && <EraserIcon />}
                     {tool === 'hand' && <HandIcon />}
+                    {tool === 'magic-pen' && <MagicPenIcon />}
                 </span>
 
                 {/* Pen color indicator */}

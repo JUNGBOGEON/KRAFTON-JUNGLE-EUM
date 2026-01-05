@@ -16,6 +16,7 @@ import ChatPanel, { VoiceRecord } from '@/components/video/ChatPanel';
 import SubtitleOverlay from '@/components/video/SubtitleOverlay';
 import { useRoomTranslation, RoomTranscriptData } from '@/app/hooks/useRoomTranslation';
 import { TargetLanguage } from '@/app/hooks/useAudioWebSocket';
+import ActiveSpeakerOverlay from '@/components/video/ActiveSpeakerOverlay';
 
 const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
 
@@ -122,7 +123,7 @@ function VideoCallContent({
                 // 마지막 레코드가 있고, 아직 isFinal 처리되지 않았으면 업데이트
                 // isFinal 여부는 translated && targetLanguage가 있는 final만 체크
                 const isLastRecordPartial = lastRecord && !lastRecord._isFinal;
-                
+
                 if (isLastRecordPartial) {
                     const updated = [...prev];
                     updated[lastIndex] = {
@@ -150,7 +151,7 @@ function VideoCallContent({
 
             // final 결과 (isFinal === true): 마지막 partial을 업데이트하거나 새로 추가
             const isLastRecordPartial = lastRecord && !lastRecord._isFinal;
-            
+
             if (isLastRecordPartial) {
                 // 마지막 레코드가 partial이면 final로 업데이트
                 const updated = [...prev];
@@ -297,9 +298,6 @@ function VideoCallContent({
                             <WhiteboardCanvas />
                         </div>
                     </div>
-                    <div className="w-72 bg-white rounded-2xl overflow-hidden border border-black/10 flex-shrink-0">
-                        <ParticipantSidebar />
-                    </div>
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden">
@@ -326,9 +324,8 @@ function VideoCallContent({
             )}
 
             {/* 채팅 패널 */}
-            <div className={`fixed top-14 right-0 bottom-0 w-80 z-40 transform transition-transform duration-300 ease-out ${
-                isChatOpen && !isWhiteboardOpen ? 'translate-x-0' : 'translate-x-full'
-            }`}>
+            <div className={`fixed top-14 right-0 bottom-0 w-80 z-40 transform transition-transform duration-300 ease-out ${isChatOpen && !isWhiteboardOpen ? 'translate-x-0' : 'translate-x-full'
+                }`}>
                 <ChatPanel
                     roomId={roomId}
                     onClose={toggleChat}
@@ -345,6 +342,9 @@ function VideoCallContent({
                 isActive={isTranslationActive}
                 showTranslation={isTranslationOpen}
             />
+
+            {/* Active Speaker Bubble (Floating) - Only in Whiteboard Mode */}
+            {isWhiteboardOpen && <ActiveSpeakerOverlay />}
         </>
     );
 }

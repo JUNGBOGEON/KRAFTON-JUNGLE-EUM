@@ -293,104 +293,115 @@ export default function WorkspaceDetailPage() {
     }
   };
 
+  // 통화 중이면서 해당 채널을 보고 있는지 확인
+  const isJoinedCallView = activeSection.startsWith("call-") &&
+    activeCall?.channelId === activeSection;
+
   return (
     <div className="h-screen bg-white flex overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        workspace={workspace}
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onUpdateWorkspace={(name) => setWorkspace((prev) => (prev ? { ...prev, name } : null))}
-        activeCall={activeCall}
-        onJoinCall={handleJoinCall}
-        onLeaveCall={handleLeaveCall}
-      />
+      {/* Sidebar - Hide only when joined in the active call view */}
+      {!isJoinedCallView && (
+        <Sidebar
+          workspace={workspace}
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          onUpdateWorkspace={(name) => setWorkspace((prev) => (prev ? { ...prev, name } : null))}
+          activeCall={activeCall}
+          onJoinCall={handleJoinCall}
+          onLeaveCall={handleLeaveCall}
+        />
+      )}
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <header className="h-14 border-b border-black/5 flex items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push("/workspace")}
-              className="flex items-center gap-1.5 text-sm text-black/50 hover:text-black transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              워크스페이스
-            </button>
-            {activeSection.startsWith("chat-") && currentChatRoomTitle && (
-              <>
-                <span className="text-black/20">/</span>
-                <span className="text-sm font-medium text-black"># {currentChatRoomTitle}</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <NotificationDropdown onInvitationAccepted={() => router.push("/workspace")} />
-
-            {/* Profile */}
-            <div className="relative">
+        {/* Top Bar - Hide only when joined in the active call view */}
+        {!isJoinedCallView && (
+          <header className="h-14 border-b border-black/5 flex items-center justify-between px-6">
+            <div className="flex items-center gap-4">
               <button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                onClick={() => router.push("/workspace")}
+                className="flex items-center gap-1.5 text-sm text-black/50 hover:text-black transition-colors"
               >
-                <div className="relative">
-                  {user.profileImg ? (
-                    <img
-                      src={user.profileImg}
-                      alt={user.nickname}
-                      className="w-8 h-8 rounded-full object-cover hover:ring-2 hover:ring-black/10 transition-all"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center hover:ring-2 hover:ring-black/20 transition-all">
-                      <span className="text-xs font-medium text-white">
-                        {user.nickname.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                  {/* Status Dot */}
-                  <StatusIndicator
-                    status={presenceMap[user.id]?.status || user.default_status || "online"}
-                    size="sm"
-                    className="absolute bottom-0 right-0 border-white"
-                  />
-                </div>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                워크스페이스
               </button>
-
-              {/* Global Profile Menu */}
-              {showProfileMenu && (
-                <GlobalUserProfileMenu
-                  onClose={() => setShowProfileMenu(false)}
-                  onEditProfile={() => {
-                    setShowProfileMenu(false);
-                    setIsEditProfileModalOpen(true);
-                  }}
-                  onLogout={handleLogout}
-                />
+              {activeSection.startsWith("chat-") && currentChatRoomTitle && (
+                <>
+                  <span className="text-black/20">/</span>
+                  <span className="text-sm font-medium text-black"># {currentChatRoomTitle}</span>
+                </>
               )}
             </div>
-          </div>
-        </header>
+
+            <div className="flex items-center gap-3">
+              <NotificationDropdown onInvitationAccepted={() => router.push("/workspace")} />
+
+              {/* Profile */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+                >
+                  <div className="relative">
+                    {user.profileImg ? (
+                      <img
+                        src={user.profileImg}
+                        alt={user.nickname}
+                        className="w-8 h-8 rounded-full object-cover hover:ring-2 hover:ring-black/10 transition-all"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center hover:ring-2 hover:ring-black/20 transition-all">
+                        <span className="text-xs font-medium text-white">
+                          {user.nickname.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    {/* Status Dot */}
+                    <StatusIndicator
+                      status={presenceMap[user.id]?.status || user.default_status || "online"}
+                      size="sm"
+                      className="absolute bottom-0 right-0 border-white"
+                    />
+                  </div>
+                </button>
+
+                {/* Global Profile Menu */}
+                {showProfileMenu && (
+                  <GlobalUserProfileMenu
+                    onClose={() => setShowProfileMenu(false)}
+                    onEditProfile={() => {
+                      setShowProfileMenu(false);
+                      setIsEditProfileModalOpen(true);
+                    }}
+                    onLogout={handleLogout}
+                  />
+                )}
+              </div>
+            </div>
+          </header>
+        )}
+
 
         {/* Content Area */}
         <main className="flex-1 overflow-hidden">
           {renderContent()}
         </main>
-      </div>
+      </div >
 
       {/* Edit Profile Modal */}
-      {isEditProfileModalOpen && user && (
-        <EditProfileModal
-          user={user}
-          onClose={() => setIsEditProfileModalOpen(false)}
-          onUpdate={handleUpdateProfile}
-        />
-      )}
-    </div>
+      {
+        isEditProfileModalOpen && user && (
+          <EditProfileModal
+            user={user}
+            onClose={() => setIsEditProfileModalOpen(false)}
+            onUpdate={handleUpdateProfile}
+          />
+        )
+      }
+    </div >
   );
 }
