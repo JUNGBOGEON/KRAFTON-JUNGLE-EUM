@@ -119,7 +119,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	workspaceMW := middleware.NewWorkspaceMiddleware(memberService)
 
 	// Audio handler 생성 및 DB 설정
-	audioHandler := handler.NewAudioHandler(cfg)
+	audioHandler := handler.NewAudioHandler(cfg, db)
 	if roomHub := audioHandler.GetRoomHub(); roomHub != nil {
 		roomHub.SetDB(db)
 	}

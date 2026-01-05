@@ -29,6 +29,9 @@ export default function WhiteboardCanvas() {
         tool: WhiteboardTool; // Changed from isEraser to tool
     } | null>(null);
 
+    // FIX: Lock processing to prevent double-save race conditions
+    // Removed isProcessingRef to fix data loss bug. Using Capture-and-Clear strategy instead.
+
     // Filters for Jitter Reduction (Phase 2)
     // minCutoff=1.0 (Hz), beta=0.23 (Response Speed)
     // TUNING: Aggressive Beta (0.05 -> 0.23) to ELIMINATE lag/squaring on fast circles.
@@ -86,7 +89,9 @@ export default function WhiteboardCanvas() {
 
         // Build Path
         const buildPath = () => {
-            if (points.length < 3) {
+            // FIX: Don't smooth simple polygons (Rectangles/Triangles have < 10 points)
+            // If we smooth a 5-point rectangle, it becomes a blob.
+            if (points.length < 10) {
                 graphics.moveTo(points[0].x, points[0].y);
                 for (let i = 1; i < points.length; i++) {
                     graphics.lineTo(points[i].x, points[i].y);
@@ -473,26 +478,43 @@ export default function WhiteboardCanvas() {
             prevRenderedPoint = null;
             currentGraphicsRef.current = null;
 
-            if (currentStroke.length > 0) {
+            // FIX: Capture and Clear immediately to prevent Race Conditions without blocking data
+            const strokeToProcess = [...currentStroke];
+            currentStroke = [];
+
+            if (strokeToProcess.length > 0) {
                 try {
-                    let eventsToSend = currentStroke;
+                    let eventsToSend = strokeToProcess;
                     const isMagic = toolRef.current === 'magic-pen';
 
                     if (isMagic) {
                         // **MAGIC PEN LOGIC: "Guess or Die"**
                         const abortMagic = () => {
                             if (activeGraphics) activeGraphics.graphics.clear();
-                            currentStroke = [];
+                            // NO NEED TO CLEAR currentStroke here (it's local now)
                         };
 
                         // 1. Too short? Vanish.
-                        if (currentStroke.length <= 10) {
+                        if (strokeToProcess.length <= 10) {
+                            abortMagic();
+                            return;
+                        }
+
+                        // 1.5. Too small? Vanish (Prevent "Water Droplet" / Noise)
+                        const minX = Math.min(...strokeToProcess.map(p => p.x));
+                        const maxX = Math.max(...strokeToProcess.map(p => p.x));
+                        const minY = Math.min(...strokeToProcess.map(p => p.y));
+                        const maxY = Math.max(...strokeToProcess.map(p => p.y));
+
+                        // Increased threshold to 50px to aggressively filter "Ghost/Bounce" strokes
+                        if ((maxX - minX < 50) && (maxY - minY < 50)) {
+                            console.log('[Magic Pen] Stroke too small (<50px). Vanishing.');
                             abortMagic();
                             return;
                         }
 
                         // 2. Detect Shape
-                        const points = currentStroke.map(p => ({ x: p.x, y: p.y }));
+                        const points = strokeToProcess.map(p => ({ x: p.x, y: p.y }));
                         const { detectShape } = await import('./shapeRecognition');
                         const result = detectShape(points);
 
@@ -511,8 +533,8 @@ export default function WhiteboardCanvas() {
 
                         // B. Prepare Events for History/Server
                         const newEvents: DrawEvent[] = [];
-                        const color = currentStroke[0].color;
-                        const width = currentStroke[0].width;
+                        const color = strokeToProcess[0].color;
+                        const width = strokeToProcess[0].width;
                         const corrected = result.correctedPoints;
 
                         for (let i = 0; i < corrected.length; i++) {
@@ -549,7 +571,7 @@ export default function WhiteboardCanvas() {
                     } else {
                         // **NORMAL PEN LOGIC**
                         // Apply Douglas-Peucker Simplification for optimization
-                        const originalEvents = currentStroke;
+                        const originalEvents = strokeToProcess;
 
                         if (originalEvents.length > 2) {
                             const points: Point[] = [
@@ -590,7 +612,6 @@ export default function WhiteboardCanvas() {
                     console.error('Failed to save stroke:', err);
                 }
             }
-            currentStroke = [];
         };
 
         let resizeObserver: ResizeObserver | null = null;

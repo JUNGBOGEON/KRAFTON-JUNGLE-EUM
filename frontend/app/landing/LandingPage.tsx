@@ -70,12 +70,13 @@ export function LandingPage() {
   // 로딩 중이거나 인증 확인 중이면 로딩 화면 표시
   if (isLoading || !showContent) {
     return (
-      <div className="h-screen flex items-center justify-center bg-white">
+      <div className="h-screen flex flex-col items-center justify-center bg-white gap-4">
         <img
           src="/kor_eum_black.png"
           alt="Loading"
           className="w-12 h-12 animate-pulse"
         />
+        <p className="text-black/50 text-sm">Landing Loading...</p>
       </div>
     );
   }

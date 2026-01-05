@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"realtime-backend/internal/model"
 	"strconv"
@@ -286,6 +287,8 @@ func (h *WhiteboardHandler) getMeetingID(roomName string, userID int64) (int64, 
 		var meeting model.Meeting
 		if err := h.db.Select("id").Where("code = ?", roomName).First(&meeting).Error; err == nil {
 			return meeting.ID, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
 		}
 
 		// If not found, LAZY CREATE it

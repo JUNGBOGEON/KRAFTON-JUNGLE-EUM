@@ -216,12 +216,13 @@ export default function WorkspacePage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white gap-4">
         <img
           src="/kor_eum_black.png"
           alt="Loading"
           className="w-12 h-12 animate-pulse"
         />
+        <p className="text-black/50 text-sm">Workspace Auth Loading...</p>
       </div>
     );
   }
@@ -331,8 +332,9 @@ export default function WorkspacePage() {
 
             {/* Loading State */}
             {isLoadingWorkspaces && (
-              <div className="flex items-center justify-center py-20">
+              <div className="flex flex-col items-center justify-center py-20 gap-4">
                 <div className="w-8 h-8 border-2 border-black/20 border-t-black/60 rounded-full animate-spin" />
+                <p className="text-black/50 text-sm">Workspace Data Loading...</p>
               </div>
             )}
 

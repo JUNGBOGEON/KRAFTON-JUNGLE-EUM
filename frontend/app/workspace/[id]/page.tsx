@@ -80,6 +80,10 @@ export default function WorkspaceDetailPage() {
     }
   });
 
+  // Permissions (Hoisted to avoid conditional hooks)
+  const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+  const canSendMessages = usePermission(workspace, "SEND_MESSAGES");
+
   // 통화 입장 핸들러
   const handleJoinCall = useCallback((channelId: string, channelName: string) => {
     setActiveCall({
@@ -160,12 +164,13 @@ export default function WorkspaceDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white gap-4">
         <img
           src="/kor_eum_black.png"
           alt="Loading"
           className="w-12 h-12 animate-pulse"
         />
+        <p className="text-black/50 text-sm">Workspace Detail Auth Loading...</p>
       </div>
     );
   }
@@ -178,12 +183,13 @@ export default function WorkspaceDetailPage() {
   // 인증은 되었으나 워크스페이스 로딩 중
   if (isLoadingWorkspace) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white gap-4">
         <img
           src="/kor_eum_black.png"
           alt="Loading"
           className="w-12 h-12 animate-pulse"
         />
+        <p className="text-black/50 text-sm">Workspace Detail Data Loading...</p>
       </div>
     );
   }
@@ -202,14 +208,10 @@ export default function WorkspaceDetailPage() {
     );
   }
 
-  // Permissions (Hoisted to avoid conditional hooks)
-  const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
-  const canSendMessages = usePermission(workspace, "SEND_MESSAGES");
-
   const renderContent = () => {
     // 통화방 채널 처리
     if (activeSection.startsWith("call-")) {
-      const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+      // const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA"); // Removed (Hoisted)
 
       // 현재 채널의 참가자 목록 변환 (Identity(string ID) -> ID(number))
       const currentParticipants = (voiceParticipants[activeSection] || []).map(p => ({
@@ -275,7 +277,7 @@ export default function WorkspaceDetailPage() {
           </div>
         );
       case "calls":
-        const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA");
+        // const canConnectMedia = usePermission(workspace, "CONNECT_MEDIA"); // Removed (Hoisted)
         // 전체 통화 채널의 참가자 합계? 아니면 CallsSection이 목록을 보여줄 때 사용?
         // activeSection이 "calls"일 때는 특정 채널이 아닌 대시보드일 수 있음.
         // 하지만 CallsSection은 channelId가 없으면 빈 화면을 보여줄 수 있음.
