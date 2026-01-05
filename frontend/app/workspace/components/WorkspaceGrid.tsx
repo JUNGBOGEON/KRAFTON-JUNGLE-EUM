@@ -79,17 +79,17 @@ export function WorkspaceGrid({
           const isFirst = index === 0;
 
           return (
-            <DroppableArea
-              key={category.id}
-              id={categoryKey}
-              isOver={isDragOver}
-              color={category.color}
-            >
-              {/* Separator line between categories */}
+            <div key={category.id}>
+              {/* Separator line between categories - outside DroppableArea */}
               {!isFirst && (
                 <div className="border-t border-white/10 my-8" />
               )}
-              {/* Category Header */}
+              <DroppableArea
+                id={categoryKey}
+                isOver={isDragOver}
+                color={category.color}
+              >
+                {/* Category Header */}
               <div className="flex items-center gap-2 mb-3">
                 <span
                   className="w-2 h-2 rounded-full"
@@ -104,7 +104,7 @@ export function WorkspaceGrid({
               </div>
               {/* Category Workspaces */}
               <SortableContext items={categoryWorkspaces.map(w => w.id)} strategy={rectSortingStrategy}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                   {categoryWorkspaces.map((workspace) => (
                     <WorkspaceCard
                       key={workspace.id}
@@ -124,7 +124,8 @@ export function WorkspaceGrid({
                   )}
                 </div>
               </SortableContext>
-            </DroppableArea>
+              </DroppableArea>
+            </div>
           );
         })}
 
@@ -152,7 +153,7 @@ export function WorkspaceGrid({
   return (
     <div className={`transition-opacity duration-150 ${isTransitioning ? "opacity-0" : "opacity-100"}`}>
       <SortableContext items={filteredWorkspaces.map(w => w.id)} strategy={rectSortingStrategy}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filteredWorkspaces.map((workspace) => (
             <WorkspaceCard
               key={workspace.id}
@@ -197,30 +198,33 @@ function UncategorizedSection({
   if (!showSection) return null;
 
   return (
-    <DroppableArea id="uncategorized" isOver={isDragOver}>
+    <div>
+      {/* Separator line - outside DroppableArea */}
       {categories.length > 0 && (
         <div className={`border-t my-8 transition-colors ${isDragOver ? "border-white/30" : "border-white/10"}`} />
       )}
-      <SortableContext items={uncategorizedWorkspaces.map(w => w.id)} strategy={rectSortingStrategy}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {uncategorizedWorkspaces.map((workspace) => (
-            <WorkspaceCard
-              key={workspace.id}
-              workspace={workspace}
-              categories={categories}
-              workspaceCategoryMap={workspaceCategoryMap}
-              onClick={() => onWorkspaceClick(workspace.id)}
-            />
-          ))}
-          {/* Empty drop zone */}
-          {isDragOver && uncategorizedWorkspaces.length === 0 && (
-            <div className="p-5 border-2 border-dashed border-white/20 bg-white/5 animate-pulse">
-              <div className="h-4 w-24 bg-white/20 mb-1" />
-              <div className="h-3 w-16 bg-white/10 mb-4" />
-            </div>
-          )}
-        </div>
-      </SortableContext>
-    </DroppableArea>
+      <DroppableArea id="uncategorized" isOver={isDragOver}>
+        <SortableContext items={uncategorizedWorkspaces.map(w => w.id)} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {uncategorizedWorkspaces.map((workspace) => (
+              <WorkspaceCard
+                key={workspace.id}
+                workspace={workspace}
+                categories={categories}
+                workspaceCategoryMap={workspaceCategoryMap}
+                onClick={() => onWorkspaceClick(workspace.id)}
+              />
+            ))}
+            {/* Empty drop zone */}
+            {isDragOver && uncategorizedWorkspaces.length === 0 && (
+              <div className="p-5 border-2 border-dashed border-white/20 bg-white/5 animate-pulse">
+                <div className="h-4 w-24 bg-white/20 mb-1" />
+                <div className="h-3 w-16 bg-white/10 mb-4" />
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      </DroppableArea>
+    </div>
   );
 }

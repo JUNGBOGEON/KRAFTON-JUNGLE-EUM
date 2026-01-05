@@ -23,10 +23,13 @@ export function WorkspaceCard({
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
     isOver,
-  } = useSortable({ id: workspace.id });
+  } = useSortable({
+    id: workspace.id,
+    // Disable layout animations - instant movement
+    animateLayoutChanges: () => false,
+  });
 
   const activeMembers = filterActiveMembers(workspace.members || []);
   const displayMembers = activeMembers.slice(0, 5);
@@ -40,8 +43,7 @@ export function WorkspaceCard({
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition: transition || undefined,
-    // CSS custom property for hover border color
+    // No transition - instant movement
     "--category-color": categoryColor || "transparent",
   } as React.CSSProperties;
 
@@ -64,42 +66,61 @@ export function WorkspaceCard({
       )}
       <button
         onClick={onClick}
-        className={`w-full p-5 bg-[#222] group-hover:bg-[#262626] transition-colors text-left cursor-grab active:cursor-grabbing ${
+        className={`w-full h-36 bg-[#222] group-hover:bg-[#262626] transition-colors text-left cursor-grab active:cursor-grabbing overflow-hidden relative ${
           isDragging ? "shadow-2xl shadow-black/50" : ""
         }`}
       >
-
-        {/* Name */}
-        <h3 className="text-base font-medium text-white truncate mb-1">
-          {workspace.name}
-        </h3>
-
-        {/* Member count */}
-        <p className="text-sm text-white/40 mb-4">
-          멤버 {activeMembers.length}명
-        </p>
-
-        {/* Avatars */}
-        <div className="flex items-center -space-x-2">
-          {displayMembers.map((member) => (
-            <div
-              key={member.id}
-              className="w-7 h-7 rounded-full bg-white/15 ring-2 ring-[#222] group-hover:ring-[#262626] overflow-hidden transition-colors"
-            >
-              {member.user?.profile_img ? (
-                <img src={member.user.profile_img} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-[10px] text-white/50">{member.user?.nickname?.charAt(0)}</span>
-                </div>
-              )}
-            </div>
-          ))}
-          {activeMembers.length > 5 && (
-            <div className="w-7 h-7 rounded-full bg-white/10 ring-2 ring-[#222] group-hover:ring-[#262626] flex items-center justify-center transition-colors">
-              <span className="text-[10px] text-white/50">+{activeMembers.length - 5}</span>
+        {/* Right - Owner Profile Image */}
+        <div className="absolute right-0 top-0 w-[45%] h-full">
+          {workspace.owner?.profile_img ? (
+            <img
+              src={workspace.owner.profile_img}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover object-center opacity-50 group-hover:opacity-60 transition-opacity blur-[0.5px]"
+            />
+          ) : (
+            <div className="w-full h-full bg-white/5 flex items-center justify-center">
+              <span className="text-4xl text-white/15">{workspace.owner?.nickname?.charAt(0) || "?"}</span>
             </div>
           )}
+          {/* Gradient overlay for seamless blend */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#222] via-[#222]/80 via-30% to-transparent group-hover:from-[#262626] group-hover:via-[#262626]/80 transition-colors" />
+        </div>
+
+        {/* Left - Content */}
+        <div className="relative z-10 h-full flex flex-col justify-between p-5 w-[55%]">
+          {/* Name & Owner */}
+          <div>
+            <h3 className="text-xl font-semibold text-white truncate">
+              {workspace.name}
+            </h3>
+            <p className="text-sm text-white/50 truncate mt-1">
+              {workspace.owner?.nickname || "Unknown"}
+            </p>
+          </div>
+
+          {/* Avatars */}
+          <div className="flex items-center -space-x-2">
+            {displayMembers.map((member) => (
+              <div
+                key={member.id}
+                className="w-7 h-7 rounded-full bg-white/15 ring-2 ring-[#222] group-hover:ring-[#262626] overflow-hidden transition-colors"
+              >
+                {member.user?.profile_img ? (
+                  <img src={member.user.profile_img} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <span className="text-[10px] text-white/50">{member.user?.nickname?.charAt(0)}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {activeMembers.length > 5 && (
+              <div className="w-7 h-7 rounded-full bg-white/10 ring-2 ring-[#222] group-hover:ring-[#262626] flex items-center justify-center transition-colors">
+                <span className="text-[10px] text-white/50">+{activeMembers.length - 5}</span>
+              </div>
+            )}
+          </div>
         </div>
       </button>
     </div>
@@ -114,43 +135,61 @@ export function WorkspaceCardOverlay({
 }: Omit<WorkspaceCardProps, "onClick">) {
   const activeMembers = filterActiveMembers(workspace.members || []);
   const displayMembers = activeMembers.slice(0, 5);
-  const wsCategories = workspaceCategoryMap[workspace.id] || [];
 
   return (
-    <div className="w-[300px] opacity-90 rotate-2 shadow-2xl shadow-black/50">
-      <div className="p-5 bg-[#2a2a2a] text-left">
-
-        {/* Name */}
-        <h3 className="text-base font-medium text-white truncate mb-1">
-          {workspace.name}
-        </h3>
-
-        {/* Member count */}
-        <p className="text-sm text-white/40 mb-4">
-          멤버 {activeMembers.length}명
-        </p>
-
-        {/* Avatars */}
-        <div className="flex items-center -space-x-2">
-          {displayMembers.map((member) => (
-            <div
-              key={member.id}
-              className="w-7 h-7 rounded-full bg-white/15 ring-2 ring-[#2a2a2a] overflow-hidden"
-            >
-              {member.user?.profile_img ? (
-                <img src={member.user.profile_img} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-[10px] text-white/50">{member.user?.nickname?.charAt(0)}</span>
-                </div>
-              )}
-            </div>
-          ))}
-          {activeMembers.length > 5 && (
-            <div className="w-7 h-7 rounded-full bg-white/10 ring-2 ring-[#2a2a2a] flex items-center justify-center">
-              <span className="text-[10px] text-white/50">+{activeMembers.length - 5}</span>
+    <div className="w-[280px] opacity-90 rotate-2 shadow-2xl shadow-black/50">
+      <div className="h-36 bg-[#2a2a2a] text-left overflow-hidden relative">
+        {/* Right - Owner Profile Image */}
+        <div className="absolute right-0 top-0 w-[45%] h-full">
+          {workspace.owner?.profile_img ? (
+            <img
+              src={workspace.owner.profile_img}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover object-center opacity-50 blur-[0.5px]"
+            />
+          ) : (
+            <div className="w-full h-full bg-white/5 flex items-center justify-center">
+              <span className="text-4xl text-white/15">{workspace.owner?.nickname?.charAt(0) || "?"}</span>
             </div>
           )}
+          {/* Gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#2a2a2a] via-[#2a2a2a]/80 via-30% to-transparent" />
+        </div>
+
+        {/* Left - Content */}
+        <div className="relative z-10 h-full flex flex-col justify-between p-5 w-[55%]">
+          {/* Name & Owner */}
+          <div>
+            <h3 className="text-xl font-semibold text-white truncate">
+              {workspace.name}
+            </h3>
+            <p className="text-sm text-white/50 truncate mt-1">
+              {workspace.owner?.nickname || "Unknown"}
+            </p>
+          </div>
+
+          {/* Avatars */}
+          <div className="flex items-center -space-x-2">
+            {displayMembers.map((member) => (
+              <div
+                key={member.id}
+                className="w-7 h-7 rounded-full bg-white/15 ring-2 ring-[#2a2a2a] overflow-hidden"
+              >
+                {member.user?.profile_img ? (
+                  <img src={member.user.profile_img} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <span className="text-[10px] text-white/50">{member.user?.nickname?.charAt(0)}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+            {activeMembers.length > 5 && (
+              <div className="w-7 h-7 rounded-full bg-white/10 ring-2 ring-[#2a2a2a] flex items-center justify-center">
+                <span className="text-[10px] text-white/50">+{activeMembers.length - 5}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -455,7 +455,7 @@ export default function WorkspacePage() {
         </div>
 
         {/* Drag Overlay */}
-        <DragOverlay>
+        <DragOverlay dropAnimation={null}>
           {activeWorkspace ? (
             <WorkspaceCardOverlay
               workspace={activeWorkspace}
