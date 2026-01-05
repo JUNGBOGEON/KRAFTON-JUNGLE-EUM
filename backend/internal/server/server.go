@@ -19,29 +19,32 @@ import (
 	"realtime-backend/internal/config"
 	"realtime-backend/internal/handler"
 	"realtime-backend/internal/middleware"
+	"realtime-backend/internal/model"
+	"realtime-backend/internal/presence"
 	"realtime-backend/internal/service"
 	"realtime-backend/internal/storage"
 )
 
 // Server Fiber 서버 래퍼
 type Server struct {
-	app                   *fiber.App
-	cfg                   *config.Config
-	db                    *gorm.DB
-	handler               *handler.AudioHandler
-	authHandler           *handler.AuthHandler
-	userHandler           *handler.UserHandler
-	workspaceHandler      *handler.WorkspaceHandler
-	notificationHandler   *handler.NotificationHandler
-	notificationWSHandler *handler.NotificationWSHandler
-	chatHandler           *handler.ChatHandler
-	chatWSHandler         *handler.ChatWSHandler
-	meetingHandler        *handler.MeetingHandler
-	calendarHandler       *handler.CalendarHandler
-	storageHandler        *handler.StorageHandler
-	roleHandler           *handler.RoleHandler
+	app                        *fiber.App
+	cfg                        *config.Config
+	db                         *gorm.DB
+	handler                    *handler.AudioHandler
+	authHandler                *handler.AuthHandler
+	userHandler                *handler.UserHandler
+	workspaceHandler           *handler.WorkspaceHandler
+	notificationHandler        *handler.NotificationHandler
+	notificationWSHandler      *handler.NotificationWSHandler
+	chatHandler                *handler.ChatHandler
+	chatWSHandler              *handler.ChatWSHandler
+	meetingHandler             *handler.MeetingHandler
+	calendarHandler            *handler.CalendarHandler
+	storageHandler             *handler.StorageHandler
+	roleHandler                *handler.RoleHandler
 	videoHandler               *handler.VideoHandler
 	whiteboardHandler          *handler.WhiteboardHandler
+	pollHandler                *handler.PollHandler
 	voiceRecordHandler         *handler.VoiceRecordHandler
 	voiceParticipantsWSHandler *handler.VoiceParticipantsWSHandler
 	healthHandler              *handler.HealthHandler
@@ -68,6 +71,13 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	})
 
 	// Auth 초기화
+	// Redis Presence Manager 초기화
+	presenceManager := presence.NewManager(
+		cfg.Redis.Addr,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+	)
+
 	jwtManager := auth.NewJWTManager(
 		cfg.Auth.JWTSecret,
 		cfg.Auth.AccessTokenExpiry,
@@ -75,10 +85,10 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	)
 	googleAuth := auth.NewGoogleAuthenticator(cfg.Auth.GoogleClientID)
 	authHandler := handler.NewAuthHandler(db, jwtManager, googleAuth, cfg.Auth.SecureCookie)
-	userHandler := handler.NewUserHandler(db)
+	userHandler := handler.NewUserHandler(db, presenceManager)
 	workspaceHandler := handler.NewWorkspaceHandler(db)
 	notificationHandler := handler.NewNotificationHandler(db)
-	notificationWSHandler := handler.NewNotificationWSHandler()
+	notificationWSHandler := handler.NewNotificationWSHandler(db, presenceManager)
 	chatHandler := handler.NewChatHandler(db)
 	chatWSHandler := handler.NewChatWSHandler(db)
 	meetingHandler := handler.NewMeetingHandler(db)
@@ -86,6 +96,7 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	roleHandler := handler.NewRoleHandler(db)
 	videoHandler := handler.NewVideoHandler(cfg, db)
 	whiteboardHandler := handler.NewWhiteboardHandler(db)
+	pollHandler := handler.NewPollHandler(cfg, db)
 	voiceRecordHandler := handler.NewVoiceRecordHandler(db)
 	voiceParticipantsWSHandler := handler.NewVoiceParticipantsWSHandler(cfg)
 
@@ -110,23 +121,24 @@ func New(cfg *config.Config, db *gorm.DB) *Server {
 	workspaceMW := middleware.NewWorkspaceMiddleware(memberService)
 
 	return &Server{
-		app:                   app,
-		cfg:                   cfg,
-		db:                    db,
-		handler:               handler.NewAudioHandler(cfg),
-		authHandler:           authHandler,
-		userHandler:           userHandler,
-		workspaceHandler:      workspaceHandler,
-		notificationHandler:   notificationHandler,
-		notificationWSHandler: notificationWSHandler,
-		chatHandler:           chatHandler,
-		chatWSHandler:         chatWSHandler,
-		meetingHandler:        meetingHandler,
-		calendarHandler:       calendarHandler,
-		storageHandler:        storageHandler,
-		roleHandler:           roleHandler,
+		app:                        app,
+		cfg:                        cfg,
+		db:                         db,
+		handler:                    handler.NewAudioHandler(cfg, db),
+		authHandler:                authHandler,
+		userHandler:                userHandler,
+		workspaceHandler:           workspaceHandler,
+		notificationHandler:        notificationHandler,
+		notificationWSHandler:      notificationWSHandler,
+		chatHandler:                chatHandler,
+		chatWSHandler:              chatWSHandler,
+		meetingHandler:             meetingHandler,
+		calendarHandler:            calendarHandler,
+		storageHandler:             storageHandler,
+		roleHandler:                roleHandler,
 		videoHandler:               videoHandler,
 		whiteboardHandler:          whiteboardHandler,
+		pollHandler:                pollHandler,
 		voiceRecordHandler:         voiceRecordHandler,
 		voiceParticipantsWSHandler: voiceParticipantsWSHandler,
 		healthHandler:              healthHandler,
@@ -165,8 +177,8 @@ func (s *Server) SetupMiddleware() {
 // SetupRoutes 라우트 설정
 func (s *Server) SetupRoutes() {
 	// 헬스체크 엔드포인트
-	s.app.Get("/", s.healthHandler.Liveness)           // ALB 헬스체크용
-	s.app.Get("/health", s.healthHandler.Check)        // 전체 상태 (DB + AI)
+	s.app.Get("/", s.healthHandler.Liveness)              // ALB 헬스체크용
+	s.app.Get("/health", s.healthHandler.Check)           // 전체 상태 (DB + AI)
 	s.app.Get("/health/live", s.healthHandler.Liveness)   // K8s liveness probe
 	s.app.Get("/health/ready", s.healthHandler.Readiness) // K8s readiness probe
 
@@ -191,6 +203,7 @@ func (s *Server) SetupRoutes() {
 	authGroup.Post("/logout", auth.AuthMiddleware(s.jwtManager), s.authHandler.Logout) // 인증된 사용자만
 	authGroup.Get("/me", auth.AuthMiddleware(s.jwtManager), s.authHandler.GetMe)
 	authGroup.Put("/me", auth.AuthMiddleware(s.jwtManager), s.userHandler.UpdateUser)
+	authGroup.Put("/me/status", auth.AuthMiddleware(s.jwtManager), s.userHandler.UpdateUserStatus) // 상태 업데이트 엔드포인트 추가
 
 	// User 라우트 그룹 (인증 필요)
 	userGroup := s.app.Group("/api/users", auth.AuthMiddleware(s.jwtManager))
@@ -211,6 +224,7 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Post("/:id/members", s.workspaceHandler.AddMembers)
 	workspaceGroup.Delete("/:id/leave", s.workspaceHandler.LeaveWorkspace)
 	workspaceGroup.Put("/:id/members/:userId/role", s.workspaceHandler.UpdateMemberRole)
+	workspaceGroup.Delete("/:id/members/:userId", s.workspaceHandler.KickMember)
 	workspaceGroup.Put("/:id", s.workspaceHandler.UpdateWorkspace)
 	workspaceGroup.Delete("/:id", s.workspaceHandler.DeleteWorkspace)
 
@@ -231,12 +245,17 @@ func (s *Server) SetupRoutes() {
 	workspaceGroup.Delete("/:workspaceId/chatrooms/:roomId", s.chatHandler.DeleteChatRoom)
 	workspaceGroup.Get("/:workspaceId/chatrooms/:roomId/messages", s.chatHandler.GetChatRoomMessages)
 	workspaceGroup.Post("/:workspaceId/chatrooms/:roomId/messages", s.chatHandler.SendChatRoomMessage)
+	workspaceGroup.Post("/:workspaceId/chatrooms/:roomId/read", s.chatHandler.MarkAsRead)
 
 	// Meeting 라우트 (워크스페이스 하위)
 	workspaceGroup.Get("/:workspaceId/meetings", s.meetingHandler.GetWorkspaceMeetings)
 	workspaceGroup.Post("/:workspaceId/meetings", s.meetingHandler.CreateMeeting)
 	workspaceGroup.Get("/:workspaceId/meetings/:meetingId", s.meetingHandler.GetMeeting)
 	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/start", s.meetingHandler.StartMeeting)
+
+	// DM 라우트
+	workspaceGroup.Post("/:workspaceId/dm", s.chatHandler.GetOrCreateDMRoom)
+	workspaceGroup.Get("/:workspaceId/dm", s.chatHandler.GetMyDMs)
 	workspaceGroup.Post("/:workspaceId/meetings/:meetingId/end", s.meetingHandler.EndMeeting)
 
 	// Voice Record 라우트 (미팅 하위)
@@ -269,9 +288,17 @@ func (s *Server) SetupRoutes() {
 	s.app.Get("/api/video/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetRoomParticipants)
 	s.app.Get("/api/video/rooms/participants", auth.AuthMiddleware(s.jwtManager), s.videoHandler.GetAllRoomsParticipants)
 
+	// Poll Routes
+	pollGroup := s.app.Group("/api/polls", auth.AuthMiddleware(s.jwtManager))
+	pollGroup.Post("/", s.pollHandler.CreatePoll)
+	pollGroup.Get("/", s.pollHandler.GetActivePolls)
+	pollGroup.Post("/vote", s.pollHandler.VotePoll)
+	pollGroup.Post("/:id/close", s.pollHandler.ClosePoll)
+
 	// Whiteboard 라우트
-	s.app.Get("/api/whiteboard", s.whiteboardHandler.GetWhiteboard)
-	s.app.Post("/api/whiteboard", s.whiteboardHandler.HandleWhiteboard)
+	// Whiteboard 라우트
+	s.app.Get("/api/whiteboard", auth.AuthMiddleware(s.jwtManager), s.whiteboardHandler.GetWhiteboard)
+	s.app.Post("/api/whiteboard", auth.AuthMiddleware(s.jwtManager), s.whiteboardHandler.HandleWhiteboard)
 
 	// WebSocket 업그레이드 체크 미들웨어
 	s.app.Use("/ws", func(c *fiber.Ctx) error {
@@ -440,7 +467,7 @@ func (s *Server) SetupRoutes() {
 		// 채팅방이 해당 워크스페이스에 속하는지 확인
 		var roomCount int64
 		s.db.Table("meetings").
-			Where("id = ? AND workspace_id = ? AND type = ?", roomID, workspaceID, "CHAT_ROOM").
+			Where("id = ? AND workspace_id = ? AND type IN ?", roomID, workspaceID, []string{model.MeetingTypeChatRoom.String(), model.MeetingTypeDM.String()}).
 			Count(&roomCount)
 		if roomCount == 0 {
 			return c.SendStatus(fiber.StatusNotFound)

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import { apiClient, Role, Workspace } from "../../../lib/api";
 import { useRouter } from "next/navigation";
+import { useAuth } from "../../../lib/auth-context";
 
 const PRESET_COLORS = [
     { label: "Gray", value: "#6B7280" },
@@ -17,18 +18,57 @@ const PRESET_COLORS = [
 ];
 
 const PERMISSIONS = [
-    { code: "MANAGE_WORKSPACE", label: "워크스페이스 관리", description: "워크스페이스 이름 변경, 삭제 등의 관리 작업을 수행할 수 있습니다." },
-    { code: "MANAGE_ROLES", label: "역할 관리", description: "역할을 생성, 수정, 삭제하고 멤버에게 역할을 부여할 수 있습니다." },
-    { code: "MANAGE_MEMBERS", label: "멤버 관리", description: "멤버를 내보내거나 닉네임을 변경할 수 있습니다." },
-    { code: "MANAGE_CHANNELS", label: "채널 관리", description: "채널을 생성, 수정, 삭제할 수 있습니다." },
-    { code: "SEND_MESSAGES", label: "메시지 전송", description: "채팅 채널에 메시지를 보낼 수 있습니다." },
-    { code: "CONNECT_VOICE", label: "음성 채널 접속", description: "음성 채널에 접속하여 대화할 수 있습니다." },
+    { code: "ADMIN", label: "관리자 (Admin)", description: "워크스페이스의 모든 권한을 가집니다. (워크스페이스 삭제 포함)" },
+    { code: "MANAGE_ROLES", label: "역할 수정", description: "설정 버튼 접근, 역할 생성/수정, 멤버에게 역할을 부여할 수 있습니다." },
+    { code: "MANAGE_MEMBERS", label: "멤버 관리", description: "멤버를 초대하거나 추방할 수 있습니다." },
+    { code: "MANAGE_CHANNELS", label: "채널 관리", description: "새로운 채팅/음성 채널을 생성하고 수정할 수 있습니다." },
+    { code: "SEND_MESSAGES", label: "채팅 입력", description: "채팅방에 메시지를 입력할 수 있습니다. (없으면 읽기 전용)" },
+    { code: "CONNECT_MEDIA", label: "영통 참여", description: "음성/화상 통화에 참여할 수 있습니다." },
 ];
+
+// Notification Component
+interface NotificationProps {
+    message: string;
+    type: "success" | "error";
+    onClose: () => void;
+}
+
+function Notification({ message, type, onClose }: NotificationProps) {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 3000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 animate-fade-in-down">
+            <div className={`flex items-center gap-3 px-6 py-3 rounded-full shadow-lg border ${type === "success"
+                ? "bg-white border-green-500/20 text-green-800"
+                : "bg-white border-red-500/20 text-red-800"
+                }`}>
+                {type === "success" ? (
+                    <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3 h-3 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                ) : (
+                    <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3 h-3 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </div>
+                )}
+                <span className="text-sm font-medium pr-2">{message}</span>
+            </div>
+        </div>
+    );
+}
 
 export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
     const { id } = use(params);
     const workspaceId = parseInt(id);
+    const { user } = useAuth();
 
     const [activeTab, setActiveTab] = useState<"general" | "roles" | "members">("general");
     const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -40,19 +80,22 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
     const [isDeleting, setIsDeleting] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-    // Roles Tab State
+    // Unified Role Form State
     const [roles, setRoles] = useState<Role[]>([]);
     const [isLoadingRoles, setIsLoadingRoles] = useState(false);
-    const [isCreatingRole, setIsCreatingRole] = useState(false);
-    const [newRoleName, setNewRoleName] = useState("");
-    const [newRoleColor, setNewRoleColor] = useState(PRESET_COLORS[0].value);
-    const [newRolePermissions, setNewRolePermissions] = useState<string[]>(["SEND_MESSAGES", "CONNECT_VOICE"]);
+    const [isSubmittingRole, setIsSubmittingRole] = useState(false);
 
-    // Role Edit State
-    const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
-    const [editRoleName, setEditRoleName] = useState("");
-    const [editRoleColor, setEditRoleColor] = useState("");
-    const [editRolePermissions, setEditRolePermissions] = useState<string[]>([]);
+    const [editingRoleId, setEditingRoleId] = useState<number | null>(null); // null = Create Mode
+    const [formRoleName, setFormRoleName] = useState("");
+    const [formRoleColor, setFormRoleColor] = useState(PRESET_COLORS[0].value);
+    const [formRolePermissions, setFormRolePermissions] = useState<string[]>(["SEND_MESSAGES", "CONNECT_MEDIA"]);
+
+    // Notification State
+    const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+    const showNotification = (message: string, type: "success" | "error" = "success") => {
+        setNotification({ message, type });
+    };
 
     useEffect(() => {
         loadWorkspace();
@@ -71,7 +114,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
             setName(data.name);
         } catch (error) {
             console.error("Failed to load workspace:", error);
-            alert("워크스페이스 정보를 불러오는데 실패했습니다.");
+            showNotification("워크스페이스 정보를 불러오는데 실패했습니다.", "error");
             router.push(`/workspace/${workspaceId}`); // 실패 시 메인으로 복귀
         } finally {
             setIsLoading(false);
@@ -96,79 +139,115 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
         try {
             setIsUpdating(true);
             await apiClient.updateWorkspace(workspaceId, name.trim());
-            alert("워크스페이스 정보가 수정되었습니다.");
+            showNotification("워크스페이스 정보가 수정되었습니다.");
             loadWorkspace(); // 정보 갱신
         } catch (error) {
             console.error("Failed to update workspace:", error);
-            alert("워크스페이스 수정에 실패했습니다.");
+            showNotification("워크스페이스 수정에 실패했습니다.", "error");
         } finally {
             setIsUpdating(false);
         }
     };
 
+    // Use ref to prevent double-submit across renders
+    const isDeletingRef = useRef(false);
+
     const handleDeleteWorkspace = async () => {
-        if (isDeleting) return;
+        if (isDeletingRef.current || isDeleting) return;
 
         try {
+            isDeletingRef.current = true;
             setIsDeleting(true);
             await apiClient.deleteWorkspace(workspaceId);
-            router.push("/workspace"); // 목록으로 이동
-        } catch (error) {
+            router.push("/workspace");
+        } catch (error: any) { // Type assertion for safer access
+            // If already deleted (404), consider it a success and redirect
+            if (error.message?.includes('Request failed') && error.message?.includes('not found')) {
+                router.push("/workspace");
+                return;
+            }
+            // Or simpler check if we trust the "workspace not found" string
+            if (error.message === 'Request failed' || error.message?.includes('not found')) {
+                // Double check if it's actually 404 logic from ApiClient?
+                // ApiClient throws "Request failed" or custom error.
+                // Let's rely on the user report "workspace not found"
+                router.push("/workspace");
+                return;
+            }
+
             console.error("Failed to delete workspace:", error);
-            alert("워크스페이스 삭제에 실패했습니다.");
+            showNotification("워크스페이스 삭제에 실패했습니다.", "error");
             setIsDeleting(false);
+            isDeletingRef.current = false;
         }
     };
 
     // Roles Operations
+    const resetForm = () => {
+        setEditingRoleId(null);
+        setFormRoleName("");
+        setFormRoleColor(PRESET_COLORS[0].value);
+        setFormRolePermissions(["SEND_MESSAGES", "CONNECT_MEDIA"]);
+    };
+
     const handleCreateRole = async () => {
-        if (!newRoleName.trim() || isCreatingRole) return;
+        if (!formRoleName.trim() || isSubmittingRole) return;
 
         try {
-            setIsCreatingRole(true);
+            setIsSubmittingRole(true);
             const newRole = await apiClient.createRole(
                 workspaceId,
-                newRoleName.trim(),
-                newRoleColor,
-                newRolePermissions
+                formRoleName.trim(),
+                formRoleColor,
+                formRolePermissions
             );
             setRoles((prev) => [...prev, newRole]);
-            setNewRoleName("");
-            setNewRoleColor(PRESET_COLORS[0].value);
-            setNewRolePermissions(["SEND_MESSAGES", "CONNECT_VOICE"]);
+            resetForm();
+            showNotification("새로운 역할이 생성되었습니다.");
         } catch (error) {
             console.error("Failed to create role:", error);
-            alert("역할 생성에 실패했습니다.");
+            showNotification("역할 생성에 실패했습니다.", "error");
         } finally {
-            setIsCreatingRole(false);
+            setIsSubmittingRole(false);
         }
     };
 
     const startEditingRole = (role: Role) => {
         setEditingRoleId(role.id);
-        setEditRoleName(role.name);
-        setEditRoleColor(role.color || PRESET_COLORS[0].value);
-        setEditRolePermissions(role.permissions?.map(p => p.permission_code) || []);
+        setFormRoleName(role.name);
+        setFormRoleColor(role.color || PRESET_COLORS[0].value);
+        setFormRolePermissions(role.permissions?.map(p => p.permission_code) || []);
+
+        // Scroll to top to show form
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelEditing = () => {
+        resetForm();
     };
 
     const handleUpdateRole = async () => {
-        if (!editingRoleId || !editRoleName.trim()) return;
+        if (!editingRoleId || !formRoleName.trim()) return;
 
         try {
+            setIsSubmittingRole(true);
             const updatedRole = await apiClient.updateRole(
                 workspaceId,
                 editingRoleId,
-                editRoleName.trim(),
-                editRoleColor,
-                editRolePermissions
+                formRoleName.trim(),
+                formRoleColor,
+                formRolePermissions
             );
             setRoles((prev) =>
                 prev.map((r) => (r.id === editingRoleId ? updatedRole : r))
             );
-            setEditingRoleId(null);
+            resetForm();
+            showNotification("역할이 수정되었습니다.");
         } catch (error) {
             console.error("Failed to update role:", error);
-            alert("역할 수정에 실패했습니다.");
+            showNotification("역할 수정에 실패했습니다.", "error");
+        } finally {
+            setIsSubmittingRole(false);
         }
     };
 
@@ -178,9 +257,10 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
         try {
             await apiClient.deleteRole(workspaceId, roleId);
             setRoles((prev) => prev.filter((r) => r.id !== roleId));
+            showNotification("역할이 삭제되었습니다.");
         } catch (error) {
             console.error("Failed to delete role:", error);
-            alert("역할 삭제에 실패했습니다.");
+            showNotification("역할 삭제에 실패했습니다.", "error");
         }
     };
 
@@ -197,20 +277,15 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                     )
                 };
             });
+            showNotification("멤버 역할이 변경되었습니다.");
         } catch (error) {
             console.error("Failed to update member role:", error);
-            alert("멤버 역할 변경에 실패했습니다.");
+            showNotification("멤버 역할 변경에 실패했습니다.", "error");
         }
     };
 
-    const toggleNewPermission = (code: string) => {
-        setNewRolePermissions(prev =>
-            prev.includes(code) ? prev.filter(p => p !== code) : [...prev, code]
-        );
-    };
-
-    const toggleEditPermission = (code: string) => {
-        setEditRolePermissions(prev =>
+    const toggleFormPermission = (code: string) => {
+        setFormRolePermissions(prev =>
             prev.includes(code) ? prev.filter(p => p !== code) : [...prev, code]
         );
     };
@@ -224,7 +299,14 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
     }
 
     return (
-        <div className="h-screen overflow-y-auto bg-stone-50">
+        <div className="h-screen overflow-y-auto bg-stone-50 relative">
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
             {/* Header */}
             <div className="h-16 bg-white border-b border-black/5 flex items-center justify-between px-6 sticky top-0 z-10">
                 <div className="flex items-center gap-4">
@@ -326,49 +408,51 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                 <hr className="border-black/5" />
 
                                 {/* Danger Zone */}
-                                <section className="space-y-4">
-                                    <div>
-                                        <h3 className="text-lg font-bold text-red-600 mb-1">Danger Zone</h3>
-                                        <p className="text-sm text-black/40">워크스페이스를 삭제하면 모든 파일, 채팅, 설정이 영구적으로 삭제되며 되돌릴 수 없습니다.</p>
-                                    </div>
+                                {user?.id === workspace?.owner_id && (
+                                    <section className="space-y-4">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-red-600 mb-1">Danger Zone</h3>
+                                            <p className="text-sm text-black/40">워크스페이스를 삭제하면 모든 파일, 채팅, 설정이 영구적으로 삭제되며 되돌릴 수 없습니다.</p>
+                                        </div>
 
-                                    {!showDeleteConfirm ? (
-                                        <button
-                                            onClick={() => setShowDeleteConfirm(true)}
-                                            className="px-6 py-3 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors border border-red-200"
-                                        >
-                                            워크스페이스 삭제
-                                        </button>
-                                    ) : (
-                                        <div className="bg-red-50 border border-red-100 rounded-xl p-6 space-y-4 max-w-xl">
-                                            <div className="flex gap-3 text-red-800">
-                                                <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                                </svg>
-                                                <div>
-                                                    <p className="font-bold">정말로 삭제하시겠습니까?</p>
-                                                    <p className="text-sm opacity-80 mt-1">이 작업은 되돌릴 수 없으며, 워크스페이스에 속한 모든 데이터가 제거됩니다.</p>
+                                        {!showDeleteConfirm ? (
+                                            <button
+                                                onClick={() => setShowDeleteConfirm(true)}
+                                                className="px-6 py-3 bg-red-50 text-red-600 text-sm font-medium rounded-xl hover:bg-red-100 transition-colors border border-red-200"
+                                            >
+                                                워크스페이스 삭제
+                                            </button>
+                                        ) : (
+                                            <div className="bg-red-50 border border-red-100 rounded-xl p-6 space-y-4 max-w-xl">
+                                                <div className="flex gap-3 text-red-800">
+                                                    <svg className="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                    </svg>
+                                                    <div>
+                                                        <p className="font-bold">정말로 삭제하시겠습니까?</p>
+                                                        <p className="text-sm opacity-80 mt-1">이 작업은 되돌릴 수 없으며, 워크스페이스에 속한 모든 데이터가 제거됩니다.</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-3 pt-2">
+                                                    <button
+                                                        onClick={handleDeleteWorkspace}
+                                                        disabled={isDeleting}
+                                                        className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                                                    >
+                                                        {isDeleting ? "삭제 중..." : "네, 영구적으로 삭제합니다"}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setShowDeleteConfirm(false)}
+                                                        disabled={isDeleting}
+                                                        className="px-4 py-2 bg-white text-black/70 text-sm font-medium rounded-lg hover:bg-black/5 transition-colors border border-black/10"
+                                                    >
+                                                        취소
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div className="flex gap-3 pt-2">
-                                                <button
-                                                    onClick={handleDeleteWorkspace}
-                                                    disabled={isDeleting}
-                                                    className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                                                >
-                                                    {isDeleting ? "삭제 중..." : "네, 영구적으로 삭제합니다"}
-                                                </button>
-                                                <button
-                                                    onClick={() => setShowDeleteConfirm(false)}
-                                                    disabled={isDeleting}
-                                                    className="px-4 py-2 bg-white text-black/70 text-sm font-medium rounded-lg hover:bg-black/5 transition-colors border border-black/10"
-                                                >
-                                                    취소
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </section>
+                                        )}
+                                    </section>
+                                )}
                             </div>
                         ) : activeTab === "roles" ? (
                             <div className="space-y-8 animate-fade-in">
@@ -379,10 +463,17 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                         <p className="text-sm text-black/40">워크스페이스 멤버들에게 부여할 역할을 생성하고 관리합니다.</p>
                                     </div>
 
-                                    {/* Create Role Form */}
-                                    <div className="bg-stone-50 border border-black/5 rounded-xl p-5 flex flex-col gap-4">
+                                    {/* Unified Role Form */}
+                                    <div className={`bg-stone-50 border border-black/5 rounded-xl p-5 flex flex-col gap-4 ${editingRoleId ? 'ring-2 ring-black/5 bg-white' : ''}`}>
                                         <div className="flex items-center justify-between">
-                                            <p className="text-xs font-bold text-black/50 uppercase tracking-wider">새 역할 만들기</p>
+                                            <p className="text-xs font-bold text-black/50 uppercase tracking-wider">
+                                                {editingRoleId ? "역할 수정" : "새 역할 만들기"}
+                                            </p>
+                                            {editingRoleId && (
+                                                <span className="text-xs text-black/40 font-medium px-2 py-1 bg-black/5 rounded">
+                                                    편집 모드
+                                                </span>
+                                            )}
                                         </div>
 
                                         <div className="flex flex-col gap-4">
@@ -392,12 +483,12 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                                     {PRESET_COLORS.map(c => (
                                                         <button
                                                             key={c.value}
-                                                            onClick={() => setNewRoleColor(c.value)}
-                                                            className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center ${newRoleColor === c.value ? 'border-black scale-110' : 'border-transparent hover:scale-110'}`}
+                                                            onClick={() => setFormRoleColor(c.value)}
+                                                            className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center ${formRoleColor === c.value ? 'border-black scale-110' : 'border-transparent hover:scale-110'}`}
                                                             style={{ backgroundColor: c.value }}
                                                             title={c.label}
                                                         >
-                                                            {newRoleColor === c.value && (
+                                                            {formRoleColor === c.value && (
                                                                 <svg className="w-4 h-4 text-white drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                                                 </svg>
@@ -414,21 +505,21 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                                     {PERMISSIONS.map(permission => (
                                                         <button
                                                             key={permission.code}
-                                                            onClick={() => toggleNewPermission(permission.code)}
-                                                            className={`text-left p-3 rounded-xl border transition-all ${newRolePermissions.includes(permission.code)
+                                                            onClick={() => toggleFormPermission(permission.code)}
+                                                            className={`text-left p-3 rounded-xl border transition-all ${formRolePermissions.includes(permission.code)
                                                                 ? "bg-black text-white border-black shadow-md ring-2 ring-black/20"
                                                                 : "bg-white text-black/60 border-black/5 hover:bg-stone-100 hover:border-black/10"
                                                                 }`}
                                                         >
                                                             <div className="flex items-center justify-between mb-1">
                                                                 <span className="text-sm font-bold">{permission.label}</span>
-                                                                {newRolePermissions.includes(permission.code) && (
+                                                                {formRolePermissions.includes(permission.code) && (
                                                                     <svg className="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                                                     </svg>
                                                                 )}
                                                             </div>
-                                                            <p className={`text-xs ${newRolePermissions.includes(permission.code) ? "text-white/60" : "text-black/40"}`}>
+                                                            <p className={`text-xs ${formRolePermissions.includes(permission.code) ? "text-white/60" : "text-black/40"}`}>
                                                                 {permission.description}
                                                             </p>
                                                         </button>
@@ -439,19 +530,38 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                             <div className="flex gap-3">
                                                 <input
                                                     type="text"
-                                                    value={newRoleName}
-                                                    onChange={(e) => setNewRoleName(e.target.value)}
+                                                    value={formRoleName}
+                                                    onChange={(e) => setFormRoleName(e.target.value)}
                                                     placeholder="역할 이름 (예: 디자이너, PM)"
                                                     className="flex-1 px-4 py-2 text-sm text-black bg-white border border-black/10 rounded-xl focus:border-black/30 focus:outline-none"
-                                                    onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleCreateRole()}
+                                                    onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (editingRoleId ? handleUpdateRole() : handleCreateRole())}
                                                 />
-                                                <button
-                                                    onClick={handleCreateRole}
-                                                    disabled={!newRoleName.trim() || isCreatingRole}
-                                                    className="px-6 py-2 bg-black text-white text-sm font-medium rounded-xl hover:bg-black/80 transition-colors disabled:opacity-30 whitespace-nowrap"
-                                                >
-                                                    {isCreatingRole ? "생성 중" : "추가하기"}
-                                                </button>
+                                                {editingRoleId ? (
+                                                    <>
+                                                        <button
+                                                            onClick={handleUpdateRole}
+                                                            disabled={!formRoleName.trim() || isSubmittingRole}
+                                                            className="px-6 py-2 bg-black text-white text-sm font-medium rounded-xl hover:bg-black/80 transition-colors disabled:opacity-30 whitespace-nowrap"
+                                                        >
+                                                            {isSubmittingRole ? "수정 중" : "수정하기"}
+                                                        </button>
+                                                        <button
+                                                            onClick={cancelEditing}
+                                                            disabled={isSubmittingRole}
+                                                            className="px-6 py-2 bg-stone-200 text-black/60 text-sm font-medium rounded-xl hover:bg-stone-300 transition-colors disabled:opacity-50 whitespace-nowrap"
+                                                        >
+                                                            취소
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        onClick={handleCreateRole}
+                                                        disabled={!formRoleName.trim() || isSubmittingRole}
+                                                        className="px-6 py-2 bg-black text-white text-sm font-medium rounded-xl hover:bg-black/80 transition-colors disabled:opacity-30 whitespace-nowrap"
+                                                    >
+                                                        {isSubmittingRole ? "생성 중" : "추가하기"}
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -471,108 +581,51 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
                                             </div>
                                         ) : (
                                             roles.map(role => (
-                                                <div key={role.id} className="group flex items-center justify-between p-4 bg-white border border-black/5 rounded-xl hover:border-black/20 hover:shadow-sm transition-all">
-                                                    {editingRoleId === role.id ? (
-                                                        // Edit Mode
-                                                        <div className="flex flex-col gap-3 w-full p-2 bg-stone-50 rounded-lg">
-                                                            <div className="flex items-center gap-2">
-                                                                <label className="text-xs font-semibold text-black/40">색상 변경:</label>
-                                                                <div className="flex gap-1.5 flex-wrap">
-                                                                    {PRESET_COLORS.map(c => (
-                                                                        <button
-                                                                            key={c.value}
-                                                                            className={`w-6 h-6 rounded-full border transition-transform ${editRoleColor === c.value ? 'border-black ring-1 ring-black scale-110' : 'border-transparent hover:scale-110'}`}
-                                                                            style={{ backgroundColor: c.value }}
-                                                                            onClick={() => setEditRoleColor(c.value)}
-                                                                        />
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex gap-2">
-                                                                <input
-                                                                    type="text"
-                                                                    value={editRoleName}
-                                                                    onChange={(e) => setEditRoleName(e.target.value)}
-                                                                    className="flex-1 px-3 py-2 text-sm text-black bg-white border border-black/10 rounded-lg focus:outline-none"
-                                                                    autoFocus
-                                                                />
-                                                                <div className="flex gap-1">
-                                                                    <button onClick={handleUpdateRole} className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium px-4">
-                                                                        저장
-                                                                    </button>
-                                                                    <button onClick={() => setEditingRoleId(null)} className="p-2 bg-stone-200 text-black/60 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium px-4">
-                                                                        취소
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 권한 수정 */}
-                                                            <div className="space-y-3 pt-2">
-                                                                <label className="text-xs font-semibold text-black/60">권한 설정</label>
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                                    {PERMISSIONS.map(permission => (
-                                                                        <button
-                                                                            key={permission.code}
-                                                                            onClick={() => toggleEditPermission(permission.code)}
-                                                                            className={`text-left p-3 rounded-xl border transition-all ${editRolePermissions.includes(permission.code)
-                                                                                ? "bg-black text-white border-black"
-                                                                                : "bg-white text-black/60 border-black/5 hover:bg-stone-100"
-                                                                                }`}
-                                                                        >
-                                                                            <div className="flex items-center justify-between mb-1">
-                                                                                <span className="text-sm font-bold">{permission.label}</span>
-                                                                                {editRolePermissions.includes(permission.code) && (
-                                                                                    <svg className="w-4 h-4 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                                                    </svg>
-                                                                                )}
-                                                                            </div>
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
+                                                <div
+                                                    key={role.id}
+                                                    className={`group flex items-center justify-between p-4 border rounded-xl transition-all ${editingRoleId === role.id ? "bg-black/5 border-black/10 shadow-inner" : "bg-white border-black/5 hover:border-black/20 hover:shadow-sm"}`}
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div
+                                                            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-sm"
+                                                            style={{ backgroundColor: role.color || '#999' }}
+                                                        >
+                                                            {role.name.charAt(0)}
                                                         </div>
-                                                    ) : (
-                                                        // View Mode
-                                                        <>
-                                                            <div className="flex items-center gap-4">
-                                                                <div
-                                                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-sm"
-                                                                    style={{ backgroundColor: role.color || '#999' }}
-                                                                >
-                                                                    {role.name.charAt(0)}
-                                                                </div>
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-base font-medium text-black flex items-center gap-2">
-                                                                        {role.name}
-                                                                        <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 text-[10px] uppercase font-bold tracking-wider">
-                                                                            {role.permissions?.length || 0} PERMS
-                                                                        </span>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-base font-medium text-black flex items-center gap-2">
+                                                                {role.name}
+                                                                <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 text-[10px] uppercase font-bold tracking-wider">
+                                                                    {role.permissions?.length || 0} PERMS
+                                                                </span>
+                                                                {editingRoleId === role.id && (
+                                                                    <span className="text-xs text-blue-600 font-bold animate-pulse">
+                                                                        수정 중...
                                                                     </span>
-                                                                    <span className="text-xs text-black/40 line-clamp-1">
-                                                                        {role.permissions && role.permissions.length > 0
-                                                                            ? role.permissions.map(p => PERMISSIONS.find(def => def.code === p.permission_code)?.label).filter(Boolean).join(", ")
-                                                                            : "권한 없음"}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
+                                                                )}
+                                                            </span>
+                                                            <span className="text-xs text-black/40 line-clamp-1">
+                                                                {role.permissions && role.permissions.length > 0
+                                                                    ? role.permissions.map(p => PERMISSIONS.find(def => def.code === p.permission_code)?.label).filter(Boolean).join(", ")
+                                                                    : "권한 없음"}
+                                                            </span>
+                                                        </div>
+                                                    </div>
 
-                                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button
-                                                                    onClick={() => startEditingRole(role)}
-                                                                    className="px-3 py-1.5 text-sm font-medium text-black/60 bg-stone-100 hover:bg-stone-200 rounded-lg transition-colors"
-                                                                >
-                                                                    수정
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleDeleteRole(role.id)}
-                                                                    className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                                                                >
-                                                                    삭제
-                                                                </button>
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                    <div className={`flex items-center gap-2 transition-opacity ${editingRoleId === role.id ? "opacity-30 grayscale pointer-events-none" : "opacity-0 group-hover:opacity-100"}`}>
+                                                        <button
+                                                            onClick={() => startEditingRole(role)}
+                                                            className="px-3 py-1.5 text-sm font-medium text-black/60 bg-stone-100 hover:bg-stone-200 rounded-lg transition-colors"
+                                                        >
+                                                            수정
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteRole(role.id)}
+                                                            className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                                        >
+                                                            삭제
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))
                                         )}

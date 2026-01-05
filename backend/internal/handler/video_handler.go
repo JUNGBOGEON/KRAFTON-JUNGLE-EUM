@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	internalAuth "realtime-backend/internal/auth"
 	"realtime-backend/internal/config"
 
 	"github.com/gofiber/fiber/v2"
@@ -62,18 +64,32 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 		})
 	}
 
-	// roomName format: meeting-{id} 가 있다면 종료 여부 확인
+	// roomName format: meeting-{id} 가 있다면 종료 여부 및 권한 확인
 	if len(req.RoomName) > 8 && req.RoomName[:8] == "meeting-" {
 		idStr := req.RoomName[8:]
 		var meeting struct {
-			Status string
+			Status      string
+			WorkspaceID int64
 		}
 		// model.Meeting 대신 가벼운 구조체 사용 또는 GORM 활용
-		if err := h.db.Table("meetings").Select("status").Where("id = ?", idStr).Scan(&meeting).Error; err == nil {
+		if err := h.db.Table("meetings").Select("status, workspace_id").Where("id = ?", idStr).Scan(&meeting).Error; err == nil {
 			if meeting.Status == "ENDED" {
 				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 					"error": "이미 종료된 통화방입니다.",
 				})
+			}
+
+			// 권한 확인 (CONNECT_VOICE)
+			if userID, ok := c.Locals("userId").(int64); ok {
+				hasPermission, err := internalAuth.CheckPermission(h.db, meeting.WorkspaceID, userID, "CONNECT_VOICE")
+				if err != nil {
+					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to check permission"})
+				}
+				if !hasPermission {
+					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"error": "you do not have permission to join video calls",
+					})
+				}
 			}
 		}
 	}
@@ -104,8 +120,14 @@ func (h *VideoHandler) GenerateToken(c *fiber.Ctx) error {
 		CanUpdateOwnMetadata: &canUpdateMetadata, // 참가자가 자신의 메타데이터(sourceLanguage 등) 업데이트 가능
 	}
 
+	// User ID를 Identity로 사용
+	identity := req.ParticipantName
+	if userID, ok := c.Locals("userId").(int64); ok {
+		identity = fmt.Sprintf("%d", userID)
+	}
+
 	at.AddGrant(grant).
-		SetIdentity(req.ParticipantName).
+		SetIdentity(identity).
 		SetName(req.ParticipantName).
 		SetMetadata(string(metadataJSON)).
 		SetValidFor(time.Hour * 24)

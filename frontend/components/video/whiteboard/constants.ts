@@ -29,7 +29,7 @@ export const TOOL_SETTINGS = {
     smoothness: {
         min: 0,
         max: 10,
-        default: 3,
+        default: 7,
     },
 };
 

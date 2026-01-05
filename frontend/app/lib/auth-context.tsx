@@ -17,6 +17,9 @@ interface User {
   nickname: string;
   profileImg?: string;
   provider?: string;
+  default_status?: string;
+  custom_status_text?: string;
+  custom_status_emoji?: string;
 }
 
 interface AuthContextType {
@@ -57,24 +60,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isLoginInProgress = useRef(false);
 
   const refreshUser = useCallback(async () => {
+    console.log("[AuthProvider] refreshUser calling getMe...");
     try {
       const userData = await apiClient.getMe();
+      console.log("[AuthProvider] getMe success:", userData);
       setUser({
         id: userData.id,
         email: userData.email,
         nickname: userData.nickname,
         profileImg: userData.profile_img,
         provider: userData.provider,
+        default_status: userData.default_status,
+        custom_status_text: userData.custom_status_text,
+        custom_status_emoji: userData.custom_status_emoji,
       });
-    } catch {
+    } catch (e: any) {
+      if (e.message === 'Authentication required') {
+        // Not logged in - this is expected behavior for guests
+        console.log("[AuthProvider] User is not logged in (Session check completed)");
+      } else {
+        console.error("[AuthProvider] getMe failed:", e);
+      }
       setUser(null);
     } finally {
+      console.log("[AuthProvider] refreshUser finally. Setting isLoading false.");
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     refreshUser();
+
+    // Safety timeout: Should be sufficient time for backend to respond.
+    // Reduced to 3000ms (3s) to improve UX in case of failure.
+    const timer = setTimeout(() => {
+      setIsLoading(prev => {
+        if (prev) {
+          console.warn("[AuthProvider] Safety timeout triggered (3s). Forcing isLoading to false.");
+          return false;
+        }
+        return prev;
+      });
+    }, 10000);
+
+    return () => clearTimeout(timer);
   }, [refreshUser]);
 
   const loginWithGoogle = async (idToken: string) => {
@@ -101,6 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         nickname: response.user.nickname,
         profileImg: response.user.profile_img,
         provider: response.user.provider,
+        default_status: response.user.default_status,
+        custom_status_text: response.user.custom_status_text,
+        custom_status_emoji: response.user.custom_status_emoji,
       });
     } catch (error) {
       console.error("Google login failed:", error);
@@ -115,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await apiClient.logout();
+      await apiClient.checkAuth(); // 쿠키 삭제 등을 확실히 하기 위해 (선택적)
       setUser(null);
     } finally {
       setIsLoading(false);

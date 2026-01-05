@@ -12,16 +12,96 @@ import (
 
 	"realtime-backend/internal/auth"
 	"realtime-backend/internal/model"
+	"realtime-backend/internal/presence"
 )
 
 // UserHandler 유저 핸들러
 type UserHandler struct {
-	db *gorm.DB
+	db              *gorm.DB
+	presenceManager *presence.Manager
 }
 
 // NewUserHandler UserHandler 생성
-func NewUserHandler(db *gorm.DB) *UserHandler {
-	return &UserHandler{db: db}
+func NewUserHandler(db *gorm.DB, pm *presence.Manager) *UserHandler {
+	return &UserHandler{
+		db:              db,
+		presenceManager: pm,
+	}
+}
+
+// UpdateUserStatusRequest 상태 업데이트 요청
+type UpdateUserStatusRequest struct {
+	Status            string  `json:"status"` // ONLINE, IDLE, DND, OFFLINE
+	CustomStatusText  *string `json:"custom_status_text"`
+	CustomStatusEmoji *string `json:"custom_status_emoji"`
+	ExpiresAt         *string `json:"expires_at"` // ISO8601 string or duration
+}
+
+// UpdateUserStatus 유저 상태 업데이트
+func (h *UserHandler) UpdateUserStatus(c *fiber.Ctx) error {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	var req UpdateUserStatusRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	// DB 업데이트
+	updates := map[string]interface{}{}
+
+	// 기본 상태 (Online, Idle, DND)
+	if req.Status != "" {
+		updates["default_status"] = req.Status
+	}
+
+	// 커스텀 상태 메시지
+	if req.CustomStatusText != nil {
+		updates["custom_status_text"] = *req.CustomStatusText
+	}
+	// 커스텀 상태 이모지
+	if req.CustomStatusEmoji != nil {
+		updates["custom_status_emoji"] = *req.CustomStatusEmoji
+	}
+
+	// 만료 시간 (심플하게 처리)
+	if req.ExpiresAt != nil {
+		// 파싱 로직 필요하지만 일단 생략하거나 RFC3339 가정
+		t, _ := time.Parse(time.RFC3339, *req.ExpiresAt)
+		updates["custom_status_expires_at"] = t
+	}
+
+	if len(updates) > 0 {
+		if err := h.db.Model(&model.User{}).Where("id = ?", claims.UserID).Updates(updates).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update status in db"})
+		}
+	}
+
+	// Redis 업데이트
+	if h.presenceManager != nil && req.Status != "" {
+		// 서버 ID는 context에서 가져오거나 고정값
+
+		// 기존 커스텀 메시지 유지 (SetPresence가 덮어쓰기 때문)
+		var currentMsg *string
+		var currentEmoji *string
+		if cached, err := h.presenceManager.GetPresence(claims.UserID); err == nil && cached != nil {
+			currentMsg = cached.StatusMessage
+			currentEmoji = cached.StatusMessageEmoji
+		}
+
+		if err := h.presenceManager.SetPresence(claims.UserID, presence.PresenceStatus(req.Status), "server-1", currentMsg, currentEmoji); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Failed to update presence"})
+		}
+	}
+
+	// 커스텀 상태 메시지도 Redis에 넣으려면 SetPresence를 확장하거나 별도 키 사용 필요
+	// 현재 SetPresence는 Status와 Heartbeat만 관리. StatusMessage 필드가 PresenceData에 있으니 활용 가능.
+	// 하지만 SetPresence 함수는 StatusMessage를 인자로 받지 않으므로 수정 필요.
+	// 일단 생략.
+
+	return c.JSON(fiber.Map{"message": "status updated"})
 }
 
 // SearchUsersResponse 유저 검색 응답

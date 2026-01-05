@@ -22,6 +22,7 @@ interface CallsSectionProps {
   onLeaveCall?: () => void;
   // 현재 채널에 있는 다른 참여자들 (나중에 실제 데이터로 교체)
   channelParticipants?: CallParticipant[];
+  canConnectMedia?: boolean;
 }
 
 // 채널 ID로 이름 가져오기
@@ -40,7 +41,8 @@ export default function CallsSection({
   activeCall,
   onJoinCall,
   onLeaveCall,
-  channelParticipants = []
+  channelParticipants = [],
+  canConnectMedia = true,
 }: CallsSectionProps) {
   const channelName = channelId ? getChannelName(channelId) : "통화";
   const hasParticipants = channelParticipants.length > 0;
@@ -118,15 +120,30 @@ export default function CallsSection({
       )}
 
       {/* 참여하기 버튼 */}
-      <button
-        onClick={() => channelId && onJoinCall?.(channelId, channelName)}
-        className="flex items-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-        </svg>
-        참여하기
-      </button>
+      {canConnectMedia ? (
+        <button
+          onClick={() => channelId && onJoinCall?.(channelId, channelName)}
+          className="flex items-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          </svg>
+          참여하기
+        </button>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <button
+            disabled
+            className="flex items-center gap-2 px-6 py-3 bg-stone-700/50 text-white/30 font-medium rounded-xl cursor-not-allowed"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            접근 제한
+          </button>
+          <p className="text-white/30 text-xs">음성 채널 참여 권한이 없습니다</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -30,7 +30,12 @@ export interface CursorEvent {
     isDrawing?: boolean;  // Currently drawing/erasing
 }
 
-export type WhiteboardEvent = DrawEvent | ClearEvent | RefetchEvent | CursorEvent;
+export interface DrawBatchEvent {
+    type: 'draw_batch';
+    points: DrawEvent[];
+}
+
+export type WhiteboardEvent = DrawEvent | DrawBatchEvent | ClearEvent | RefetchEvent | CursorEvent;
 
 // Remote Cursor State
 export interface RemoteCursor {
@@ -47,7 +52,7 @@ export interface RemoteCursor {
 }
 
 // Tool Types
-export type WhiteboardTool = 'pen' | 'eraser' | 'hand';
+export type WhiteboardTool = 'pen' | 'eraser' | 'hand' | 'magic-pen';
 
 // Graphics Cache for PIXI
 export interface GraphicsCache {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiClient, Notification } from "../lib/api";
 import { NotificationType } from "../lib/constants";
-import { useNotificationWebSocket } from "../hooks/useNotificationWebSocket";
+import { usePresence } from "../contexts/presence-context";
 import { useAuth } from "../lib/auth-context";
 
 interface NotificationDropdownProps {
@@ -12,6 +12,7 @@ interface NotificationDropdownProps {
 
 export default function NotificationDropdown({ onInvitationAccepted }: NotificationDropdownProps) {
     const { isAuthenticated } = useAuth();
+    const { latestNotification } = usePresence();
     const [isOpen, setIsOpen] = useState(false);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -32,22 +33,19 @@ export default function NotificationDropdown({ onInvitationAccepted }: Notificat
         }
     }, [isAuthenticated]);
 
-    // WebSocket으로 실시간 알림 수신
-    const handleNewNotification = useCallback((notification: Notification) => {
-        setNotifications(prev => {
-            // 중복 방지
-            if (prev.some(n => n.id === notification.id)) {
-                return prev;
-            }
-            // 새 알림을 맨 앞에 추가
-            return [notification, ...prev];
-        });
-    }, []);
-
-    useNotificationWebSocket({
-        onNotification: handleNewNotification,
-        enabled: isAuthenticated,
-    });
+    // 실시간 알림 수신 (Context 사용)
+    useEffect(() => {
+        if (latestNotification) {
+            setNotifications(prev => {
+                // 중복 방지
+                if (prev.some(n => n.id === latestNotification.id)) {
+                    return prev;
+                }
+                // 새 알림을 맨 앞에 추가
+                return [latestNotification, ...prev];
+            });
+        }
+    }, [latestNotification]);
 
     // 인증 시 알림 목록 로드
     useEffect(() => {

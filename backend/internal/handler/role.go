@@ -67,14 +67,13 @@ func (h *RoleHandler) CreateRole(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid workspace id"})
 	}
 
-	// 워크스페이스 소유자 확인
-	var workspace model.Workspace
-	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+	// 권한 확인
+	hasPermission, err := auth.CheckPermission(h.db, int64(workspaceID), claims.UserID, "MANAGE_ROLES")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to check permission"})
 	}
-
-	if workspace.OwnerID != claims.UserID {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only workspace owner can manage roles"})
+	if !hasPermission {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you do not have permission to manage roles"})
 	}
 
 	var req CreateRoleRequest
@@ -132,13 +131,13 @@ func (h *RoleHandler) UpdateRole(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid role id"})
 	}
 
-	// 워크스페이스 소유자 확인
-	var workspace model.Workspace
-	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+	// 권한 확인
+	hasPermission, err := auth.CheckPermission(h.db, int64(workspaceID), claims.UserID, "MANAGE_ROLES")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to check permission"})
 	}
-	if workspace.OwnerID != claims.UserID {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only workspace owner can manage roles"})
+	if !hasPermission {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you do not have permission to manage roles"})
 	}
 
 	var req UpdateRoleRequest
@@ -206,13 +205,13 @@ func (h *RoleHandler) DeleteRole(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid role id"})
 	}
 
-	// 워크스페이스 소유자 확인
-	var workspace model.Workspace
-	if err := h.db.First(&workspace, workspaceID).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "workspace not found"})
+	// 권한 확인
+	hasPermission, err := auth.CheckPermission(h.db, int64(workspaceID), claims.UserID, "MANAGE_ROLES")
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to check permission"})
 	}
-	if workspace.OwnerID != claims.UserID {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "only workspace owner can manage roles"})
+	if !hasPermission {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "you do not have permission to manage roles"})
 	}
 
 	// 역할 삭제 트랜잭션

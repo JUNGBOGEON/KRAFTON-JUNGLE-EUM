@@ -31,7 +31,7 @@ export interface LocalCursor {
 
 interface UseWhiteboardCursorsReturn {
     remoteCursors: Map<string, RemoteCursor>;
-    localCursor: LocalCursor | null;
+    // localCursor: LocalCursor | null;
     broadcastCursor: (x: number, y: number) => void;
     handleCursorEvent: (event: CursorEvent) => void;
     cursorColor: string;
@@ -43,7 +43,7 @@ export function useWhiteboardCursors({
     toolState,
 }: UseWhiteboardCursorsOptions): UseWhiteboardCursorsReturn {
     const [remoteCursors, setRemoteCursors] = useState<Map<string, RemoteCursor>>(new Map());
-    const [localCursor, setLocalCursor] = useState<LocalCursor | null>(null);
+    // const [localCursor, setLocalCursor] = useState<LocalCursor | null>(null); // Removed for performance
     const lastBroadcastRef = useRef<number>(0);
     const cursorColorRef = useRef<string>('');
     const toolStateRef = useRef<ToolState>(toolState);
@@ -68,18 +68,6 @@ export function useWhiteboardCursors({
         const participantName = room.localParticipant.name || room.localParticipant.identity;
         const color = cursorColorRef.current;
         const { tool, penColor, isDrawing } = toolStateRef.current;
-
-        // Update local cursor immediately (no throttle for local display)
-        setLocalCursor({
-            x,
-            y,
-            participantId,
-            participantName,
-            color,
-            tool,
-            penColor: tool === 'pen' ? penColor : undefined,
-            isDrawing,
-        });
 
         // Throttle broadcasting to other participants
         const now = Date.now();
@@ -166,7 +154,7 @@ export function useWhiteboardCursors({
 
     return {
         remoteCursors,
-        localCursor,
+        // localCursor,
         broadcastCursor,
         handleCursorEvent,
         cursorColor: cursorColorRef.current,

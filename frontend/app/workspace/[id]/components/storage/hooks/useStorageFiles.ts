@@ -17,7 +17,7 @@ interface UseStorageFilesReturn {
   setSelectedFile: (file: WorkspaceFile | null) => void;
   fileStats: FileStats;
   loadFiles: () => Promise<void>;
-  handleFileClick: (file: WorkspaceFile) => Promise<{ isMedia: boolean; mediaUrl: string | null } | void>;
+  handleFileClick: (file: WorkspaceFile) => Promise<{ isMedia: boolean; url: string | null }>;
   handleBreadcrumbClick: (folderId?: number) => void;
   handleCreateFolder: (name: string) => Promise<void>;
   handleDeleteFile: (file: WorkspaceFile) => Promise<void>;
@@ -81,7 +81,7 @@ export function useStorageFiles({ workspaceId }: UseStorageFilesProps): UseStora
     if (file.type === "FOLDER") {
       setCurrentFolderId(file.id);
       setSelectedFile(null);
-      return;
+      return { isMedia: false, url: null };
     }
 
     setSelectedFile(file);
@@ -89,22 +89,11 @@ export function useStorageFiles({ workspaceId }: UseStorageFilesProps): UseStora
     const isVideo = file.mime_type?.startsWith("video/") || false;
     const isMedia = isImage || isVideo;
 
-    if (isMedia) {
-      try {
-        const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
-        return { isMedia: true, mediaUrl: url };
-      } catch {
-        return { isMedia: true, mediaUrl: file.file_url || null };
-      }
-    } else {
-      try {
-        const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
-        window.open(url, "_blank");
-      } catch {
-        if (file.file_url) {
-          window.open(file.file_url, "_blank");
-        }
-      }
+    try {
+      const { url } = await apiClient.getDownloadURL(workspaceId, file.id);
+      return { isMedia, url };
+    } catch {
+      return { isMedia, url: file.file_url || null };
     }
   }, [workspaceId]);
 

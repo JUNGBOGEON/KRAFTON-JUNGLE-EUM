@@ -7,6 +7,10 @@ interface AuthResponse {
     nickname: string;
     profile_img?: string;
     provider?: string;
+    default_status?: string;
+    custom_status_text?: string;
+    custom_status_emoji?: string;
+    custom_status_expires_at?: string;
   };
   expires_in: number;
 }
@@ -16,6 +20,9 @@ interface UserSearchResult {
   email: string;
   nickname: string;
   profile_img?: string;
+  default_status?: string;
+  custom_status_text?: string;
+  custom_status_emoji?: string;
 }
 
 interface SearchUsersResponse {
@@ -103,6 +110,14 @@ interface ChatRoomMessagesResponse {
   room_id: number;
   messages: ChatMessage[];
   total: number;
+}
+
+export interface DMRoom {
+  id: number;
+  target_user: UserSearchResult;
+  last_message?: string;
+  unread_count: number;
+  updated_at: string;
 }
 
 // 미팅 관련 타입
@@ -282,11 +297,20 @@ class ApiClient {
       delete headers['Content-Type'];
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-      credentials: 'include', // 쿠키 자동 전송
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (response.status === 401) {
       // auth 엔드포인트는 자동 갱신 건너뛰기
@@ -313,6 +337,10 @@ class ApiClient {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.error || 'Request failed');
+    }
+
+    if (response.status === 204) {
+      return {} as T;
     }
 
     return response.json();
@@ -408,6 +436,19 @@ class ApiClient {
     });
   }
 
+  // 상태 업데이트
+  async updateUserStatus(data: {
+    status?: string;
+    custom_status_text?: string;
+    custom_status_emoji?: string;
+    expires_at?: string;
+  }): Promise<{ message: string }> {
+    return this.request<{ message: string }>('/auth/me/status', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // 유저 검색 (닉네임 또는 이메일)
   async searchUsers(query: string): Promise<SearchUsersResponse> {
     if (query.length < 2) {
@@ -447,6 +488,13 @@ class ApiClient {
   // 워크스페이스 나가기
   async leaveWorkspace(workspaceId: number): Promise<{ message: string }> {
     return this.request(`/api/workspaces/${workspaceId}/leave`, {
+      method: 'DELETE',
+    });
+  }
+
+  // 워크스페이스 멤버 강퇴
+  async kickMember(workspaceId: number, userId: number): Promise<{ message: string }> {
+    return this.request(`/api/workspaces/${workspaceId}/members/${userId}`, {
       method: 'DELETE',
     });
   }
@@ -550,6 +598,12 @@ class ApiClient {
     });
   }
 
+  async markChatRoomAsRead(workspaceId: number, roomId: number): Promise<{ message: string; read_at: string }> {
+    return this.request(`/api/workspaces/${workspaceId}/chatrooms/${roomId}/read`, {
+      method: 'POST',
+    });
+  }
+
   // ========== 미팅 API ==========
   async getWorkspaceMeetings(workspaceId: number): Promise<MeetingsResponse> {
     return this.request<MeetingsResponse>(`/api/workspaces/${workspaceId}/meetings`);
@@ -564,6 +618,18 @@ class ApiClient {
 
   async getMeeting(workspaceId: number, meetingId: number): Promise<Meeting> {
     return this.request<Meeting>(`/api/workspaces/${workspaceId}/meetings/${meetingId}`);
+  }
+
+  // ========== DM API ==========
+  async getOrCreateDMRoom(workspaceId: number, targetUserId: number): Promise<{ id: number }> {
+    return this.request<{ id: number }>(`/api/workspaces/${workspaceId}/dm`, {
+      method: 'POST',
+      body: JSON.stringify({ target_user_id: targetUserId }),
+    });
+  }
+
+  async getMyDMs(workspaceId: number): Promise<DMRoom[]> {
+    return this.request<DMRoom[]>(`/api/workspaces/${workspaceId}/dm`);
   }
 
   async startMeeting(workspaceId: number, meetingId: number): Promise<Meeting> {

@@ -8,6 +8,7 @@ interface ChatSectionProps {
   workspaceId: number;
   roomId: number;
   onRoomTitleChange?: (title: string) => void;
+  onBack?: () => void;
   canSendMessages?: boolean;
 }
 
@@ -31,7 +32,7 @@ interface WSMessage {
 const WS_BASE_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'ws://localhost:8080';
 const MESSAGES_PER_PAGE = 30;
 
-export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, canSendMessages = true }: ChatSectionProps) {
+export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, onBack, canSendMessages = true }: ChatSectionProps) {
   const { user } = useAuth();
 
   // 메시지 관련 상태
@@ -44,6 +45,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
   const [hasMore, setHasMore] = useState(true);
   const [totalMessages, setTotalMessages] = useState(0);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [roomTitle, setRoomTitle] = useState("");
 
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +64,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
   }, [user?.id]);
 
   const SPAM_COOLDOWN = 1000;
+  const TYPING_INDICATOR_TIMEOUT = 5000;
 
   // 맨 아래로 스크롤
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
@@ -160,8 +163,11 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
     try {
       const response = await apiClient.getChatRooms(workspaceId);
       const room = response.rooms.find(r => r.id === roomId);
-      if (room && onRoomTitleChange) {
-        onRoomTitleChange(room.title);
+      if (room) {
+        setRoomTitle(room.title);
+        if (onRoomTitleChange) {
+          onRoomTitleChange(room.title);
+        }
       }
     } catch (error) {
       console.error("Failed to load room info:", error);
@@ -238,9 +244,11 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
                   return [...prev, newMsg];
                 });
 
-                // 다른 사람 메시지일 때만 스크롤
+                // 다른 사람 메시지일 때만 스크롤 및 읽음 처리
                 if (!isMyMsg) {
                   requestAnimationFrame(() => scrollToBottom("smooth"));
+                  // 읽음 처리 (비동기, 에러 무시)
+                  apiClient.markChatRoomAsRead(workspaceId, roomId).catch(() => { });
                 }
               }
               break;
@@ -318,7 +326,7 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
         isTypingRef.current = false;
         sendTypingStatus(false);
       }
-    }, 2000);
+    }, TYPING_INDICATOR_TIMEOUT);
   };
 
   const handleSend = useCallback(() => {
@@ -397,12 +405,26 @@ export default function ChatSection({ workspaceId, roomId, onRoomTitleChange, ca
 
   return (
     <div className="h-full flex flex-col bg-white overflow-hidden relative">
+      {/* Header with Back Button */}
+      <div className="h-16 px-6 flex items-center border-b border-black/5 bg-white flex-shrink-0 gap-3 z-10">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="p-2 -ml-2 rounded-full hover:bg-black/5 text-black/40 hover:text-black transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
+        <h2 className="font-semibold text-lg text-black">{roomTitle || "채팅"}</h2>
+      </div>
       {/* 최신 메시지로 이동 버튼 */}
       <button
         onClick={() => scrollToBottom("smooth")}
         className={`absolute bottom-24 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 px-4 py-2 bg-white text-blue-600 text-sm font-medium rounded-full shadow-lg border border-blue-200 transition-all duration-300 ease-out hover:bg-blue-50 hover:border-blue-300 hover:scale-105 ${showScrollButton
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 translate-y-4 pointer-events-none"
+          ? "opacity-100 translate-y-0"
+          : "opacity-0 translate-y-4 pointer-events-none"
           }`}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -5,6 +5,7 @@ import * as PIXI from 'pixi.js';
 import { Room } from 'livekit-client';
 import { DrawEvent, GraphicsCache, WhiteboardTool } from '../types';
 import { apiClient } from '@/app/lib/api';
+import { simplifyPoints, Point } from '../utils';
 
 interface UseWhiteboardDrawingOptions {
     room: Room | undefined;
@@ -199,7 +200,44 @@ export function useWhiteboardDrawing({
         // Save stroke to server
         if (currentStrokeRef.current.length > 0 && room?.name) {
             try {
-                const data = await apiClient.handleWhiteboardAction(room.name, { stroke: currentStrokeRef.current });
+                // Apply Douglas-Peucker simplification
+                const originalEvents = currentStrokeRef.current;
+                let eventsToSend = originalEvents;
+
+                // Only simplify if we have enough points to make it meaningful
+                if (originalEvents.length > 2) {
+                    // Extract points: Start point of first event + End points of all events
+                    const points: Point[] = [
+                        { x: originalEvents[0].prevX, y: originalEvents[0].prevY },
+                        ...originalEvents.map(e => ({ x: e.x, y: e.y }))
+                    ];
+
+                    const tolerance = 1.0; // 1 pixel tolerance
+                    const simplifiedPoints = simplifyPoints(points, tolerance);
+
+                    // Reconstruct DrawEvents from simplified points
+                    if (simplifiedPoints.length >= 2) {
+                        const newEvents: DrawEvent[] = [];
+                        const color = originalEvents[0].color;
+                        const width = originalEvents[0].width;
+
+                        for (let i = 1; i < simplifiedPoints.length; i++) {
+                            newEvents.push({
+                                type: 'draw',
+                                x: simplifiedPoints[i].x,
+                                y: simplifiedPoints[i].y,
+                                prevX: simplifiedPoints[i - 1].x,
+                                prevY: simplifiedPoints[i - 1].y,
+                                color,
+                                width
+                            });
+                        }
+                        eventsToSend = newEvents;
+                        console.log(`[Whiteboard] Simplified stroke: ${originalEvents.length} -> ${eventsToSend.length} events`);
+                    }
+                }
+
+                const data = await apiClient.handleWhiteboardAction(room.name, { stroke: eventsToSend });
                 if (data.success) {
                     onUndoRedoChange(data.canUndo, data.canRedo);
                 }

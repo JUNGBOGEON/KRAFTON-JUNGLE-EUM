@@ -3,10 +3,15 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../lib/auth-context";
+import { usePresence } from "../contexts/presence-context";
 import { apiClient, UserSearchResult, Workspace } from "../lib/api";
 import { filterActiveMembers } from "../lib/utils";
 import NotificationDropdown from "../components/NotificationDropdown";
 import EditProfileModal from "../../components/EditProfileModal";
+import GlobalUserProfileMenu from "../../components/GlobalUserProfileMenu";
+import StatusIndicator from "../../components/StatusIndicator";
+
+console.log("[WorkspacePage] Module loaded");
 
 export default function WorkspacePage() {
   const router = useRouter();
@@ -133,11 +138,14 @@ export default function WorkspacePage() {
   const fetchWorkspaces = useCallback(async () => {
     try {
       setIsLoadingWorkspaces(true);
+      console.log("[WorkspacePage] Fetching workspaces...");
       const response = await apiClient.getMyWorkspaces();
+      console.log("[WorkspacePage] Fetched workspaces:", response.workspaces.length);
       setWorkspaces(response.workspaces);
     } catch (error) {
-      console.error("Failed to fetch workspaces:", error);
+      console.error("[WorkspacePage] Failed to fetch workspaces:", error);
     } finally {
+      console.log("[WorkspacePage] fetchWorkspaces finally. Setting isLoadingWorkspaces false.");
       setIsLoadingWorkspaces(false);
     }
   }, []);
@@ -169,7 +177,9 @@ export default function WorkspacePage() {
 
   // 인증 상태 체크 및 워크스페이스 로드
   useEffect(() => {
+    console.log("[WorkspacePage] Auth Effect. isLoading:", isLoading, "isAuthenticated:", isAuthenticated);
     if (!isLoading && !isAuthenticated) {
+      console.log("[WorkspacePage] Redirecting to / because NOT authenticated");
       router.push("/");
     }
   }, [isLoading, isAuthenticated, router]);
@@ -177,9 +187,27 @@ export default function WorkspacePage() {
   // 워크스페이스 목록 로드
   useEffect(() => {
     if (isAuthenticated) {
+      console.log("[WorkspacePage] Authenticated, calling fetchWorkspaces");
       fetchWorkspaces();
     }
   }, [isAuthenticated, fetchWorkspaces]);
+
+  const { presenceMap, subscribePresence } = usePresence(); // Destructure properly
+
+  // Subscribe to presence for all workspace members
+  useEffect(() => {
+    if (workspaces.length > 0) {
+      const allMemberIds = new Set<number>();
+      workspaces.forEach(ws => {
+        ws.members?.forEach(m => {
+          if (m.user?.id) allMemberIds.add(m.user.id);
+        });
+      });
+      if (allMemberIds.size > 0) {
+        subscribePresence(Array.from(allMemberIds));
+      }
+    }
+  }, [workspaces, subscribePresence]);
 
   const handleLogout = async () => {
     await logout();
@@ -203,7 +231,7 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="min-h-screen bg-white relative overflow-hidden">
+    <div className="min-h-screen bg-white relative overflow-y-auto">
 
       {/* Background Images */}
       <img
@@ -234,51 +262,39 @@ export default function WorkspacePage() {
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
                 className="flex items-center gap-3 hover:opacity-70 transition-opacity"
               >
-                {user.profileImg ? (
-                  <img
-                    src={user.profileImg}
-                    alt={user.nickname}
-                    className="w-9 h-9 rounded-full object-cover"
+                <div className="relative">
+                  {user.profileImg ? (
+                    <img
+                      src={user.profileImg}
+                      alt={user.nickname}
+                      className="w-9 h-9 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center">
+                      <span className="text-sm font-medium text-white">
+                        {user.nickname.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  {/* Status Indicator */}
+                  <StatusIndicator
+                    status={presenceMap[user.id]?.status || user.default_status || "online"}
+                    size="sm"
+                    className="absolute bottom-0 right-0 ring-2 ring-white"
                   />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center">
-                    <span className="text-sm font-medium text-white">
-                      {user.nickname.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                </div>
               </button>
 
-              {/* Profile Dropdown */}
+              {/* Global Profile Menu */}
               {showProfileMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowProfileMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-64 bg-white border border-black/10 shadow-lg z-20">
-                    <div className="p-4 border-b border-black/5">
-                      <p className="font-medium text-black">{user.nickname}</p>
-                      <p className="text-sm text-black/50 mt-0.5">{user.email}</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setShowProfileMenu(false);
-                        setIsEditProfileModalOpen(true);
-                        // alert("프로필 수정 기능 준비 중입니다.");
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-black/70 hover:bg-black/5 transition-colors border-b border-black/5"
-                    >
-                      프로필 수정
-                    </button>
-                    <button
-                      onClick={handleLogout}
-                      className="w-full px-4 py-3 text-left text-sm text-black/70 hover:bg-black/5 transition-colors"
-                    >
-                      로그아웃
-                    </button>
-                  </div>
-                </>
+                <GlobalUserProfileMenu
+                  onClose={() => setShowProfileMenu(false)}
+                  onEditProfile={() => {
+                    setShowProfileMenu(false);
+                    setIsEditProfileModalOpen(true);
+                  }}
+                  onLogout={handleLogout}
+                />
               )}
             </div>
           </div>
@@ -406,25 +422,38 @@ export default function WorkspacePage() {
                         {/* Member Avatars */}
                         <div className="flex items-center">
                           <div className="flex -space-x-2">
-                            {displayMembers.map((member, index) => (
-                              <div
-                                key={member.id}
-                                className="w-8 h-8 rounded-full border-2 border-white bg-black/10 flex items-center justify-center"
-                                style={{ zIndex: displayMembers.length - index }}
-                              >
-                                {member.user?.profile_img ? (
-                                  <img
-                                    src={member.user.profile_img}
-                                    alt={member.user.nickname}
-                                    className="w-full h-full rounded-full object-cover"
-                                  />
-                                ) : (
-                                  <span className="text-xs font-medium text-black/50">
-                                    {member.user?.nickname?.charAt(0) || "?"}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
+                            {displayMembers.map((member, index) => {
+                              const presence = member.user ? presenceMap[member.user.id] : null;
+                              const status = presence?.status || member.user?.default_status || "offline";
+
+                              return (
+                                <div
+                                  key={member.id}
+                                  className="relative w-8 h-8 rounded-full border-2 border-white bg-black/10 flex items-center justify-center"
+                                  style={{ zIndex: displayMembers.length - index }}
+                                >
+                                  {member.user?.profile_img ? (
+                                    <img
+                                      src={member.user.profile_img}
+                                      alt={member.user.nickname}
+                                      className="w-full h-full rounded-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-medium text-black/50">
+                                      {member.user?.nickname?.charAt(0) || "?"}
+                                    </span>
+                                  )}
+                                  {/* Status Indicator for Member */}
+                                  {member.user && (
+                                    <StatusIndicator
+                                      status={status}
+                                      size="sm"
+                                      className="absolute bottom-0 right-0 ring-1 ring-white"
+                                    />
+                                  )}
+                                </div>
+                              )
+                            })}
                             {remainingCount > 0 && (
                               <div
                                 className="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center"

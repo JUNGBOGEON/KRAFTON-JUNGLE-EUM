@@ -251,7 +251,7 @@ export default function SubtitleOverlay({
         const unsubscribe = subtitleStore.subscribe(() => {
             setEntries(subtitleStore.getAll());
         });
-        return unsubscribe;
+        return () => { unsubscribe(); };
     }, []);
 
     // 새 자막 추가
