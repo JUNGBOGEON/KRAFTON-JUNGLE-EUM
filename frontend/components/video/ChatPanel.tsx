@@ -33,6 +33,19 @@ interface ChatPanelProps {
 
 type TabType = 'chat' | 'voice';
 
+import PollBubble from './PollBubble';
+import PollCreateForm from './PollCreateForm';
+
+interface PollData {
+    id: string;
+    question: string;
+    options: string[];
+    isAnonymous: boolean;
+    createdAt: number;
+    expiresAt?: number; // timestamp
+    isClosed?: boolean;
+}
+
 export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords = [] }: ChatPanelProps) {
     const room = useRoomContext();
     const { localParticipant } = useLocalParticipant();
@@ -40,6 +53,14 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<TabType>('chat');
+
+    // Poll States
+    const [showPollForm, setShowPollForm] = useState(false);
+    const [showPlusMenu, setShowPlusMenu] = useState(false);
+    const [pollVotes, setPollVotes] = useState<Record<string, Record<number, number>>>({}); // pollId -> optionIdx -> count
+    const [myVotes, setMyVotes] = useState<Record<string, number>>({}); // pollId -> myOptionIdx
+    const [closedPolls, setClosedPolls] = useState<Set<string>>(new Set()); // manually closed poll IDs
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const voiceEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -58,9 +79,8 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
 
     // voiceRecords 변경 감지 디버깅
     useEffect(() => {
-        console.log("[ChatPanel] voiceRecords received:", voiceRecords.length, "records");
         if (voiceRecords.length > 0) {
-            console.log("[ChatPanel] Latest record:", voiceRecords[voiceRecords.length - 1]);
+            // console.log("[ChatPanel] Latest record:", voiceRecords[voiceRecords.length - 1]);
         }
     }, [voiceRecords]);
 
@@ -81,6 +101,18 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                         isOwn: msg.sender === (localParticipant?.name || localParticipant?.identity),
                     }));
                     setMessages(loadedMessages);
+
+                    // Reconstruct closed polls from history
+                    const initialClosedPolls = new Set<string>();
+                    loadedMessages.forEach((msg: ChatMessage) => {
+                        try {
+                            const parsed = JSON.parse(msg.content);
+                            if (parsed.type === 'POLL_CLOSE') {
+                                initialClosedPolls.add(parsed.pollId);
+                            }
+                        } catch { }
+                    });
+                    setClosedPolls(initialClosedPolls);
                 }
             } catch (e) {
                 console.error('Failed to load messages:', e);
@@ -99,8 +131,17 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
 
         const handleData = (payload: Uint8Array, participant: any) => {
             try {
-                const data = JSON.parse(new TextDecoder().decode(payload));
+                const strData = new TextDecoder().decode(payload);
+                const data = JSON.parse(strData);
+
                 if (data.type === 'chat') {
+                    // Check if content is a JSON string (Poll)
+                    let isPoll = false;
+                    try {
+                        const contentJson = JSON.parse(data.content);
+                        if (contentJson.type === 'POLL_CREATE') isPoll = true;
+                    } catch { }
+
                     const newMessage: ChatMessage = {
                         id: data.id,
                         sender: data.sender,
@@ -110,6 +151,21 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                     };
                     setMessages((prev) => [...prev, newMessage]);
                     onNewMessage?.();
+                } else if (data.type === 'POLL_VOTE') {
+                    // Handle incoming vote
+                    const { pollId, optionIndex } = data;
+                    setPollVotes(prev => {
+                        const currentPollVotes = prev[pollId] || {};
+                        return {
+                            ...prev,
+                            [pollId]: {
+                                ...currentPollVotes,
+                                [optionIndex]: (currentPollVotes[optionIndex] || 0) + 1
+                            }
+                        };
+                    });
+                } else if (data.type === 'POLL_CLOSE') {
+                    setClosedPolls(prev => new Set(prev).add(data.pollId));
                 }
             } catch (e) {
                 // Ignore non-chat messages
@@ -122,14 +178,26 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
         };
     }, [room, localParticipant?.identity, onNewMessage]);
 
-    const sendMessage = useCallback(async () => {
-        if (!input.trim() || !room || !localParticipant) return;
+    const sendMessage = useCallback(async (customContent?: string, type: 'chat' | 'POLL_VOTE' | 'POLL_CLOSE' = 'chat') => {
+        if ((!input.trim() && !customContent) || !room || !localParticipant) return;
+
+        const contentToSend = customContent || input.trim();
+
+        // Special message types (invisible to chat history locally)
+        if (type === 'POLL_VOTE' || type === 'POLL_CLOSE') {
+            const message = JSON.parse(contentToSend!);
+            await localParticipant.publishData(
+                new TextEncoder().encode(JSON.stringify(message)),
+                { reliable: true }
+            );
+            return;
+        }
 
         const message = {
             type: 'chat',
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             sender: localParticipant.name || localParticipant.identity,
-            content: input.trim(),
+            content: contentToSend,
             timestamp: Date.now(),
         };
 
@@ -139,18 +207,95 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                 { reliable: true }
             );
 
+            // Persist valid chat messages (including Polls)
             await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomId, message }),
+                body: JSON.stringify({ roomId, message }), // Persist poll creation messages too
             });
 
             setMessages((prev) => [...prev, { ...message, isOwn: true }]);
-            setInput('');
+            if (!customContent) setInput('');
         } catch (e) {
             console.error('Failed to send message:', e);
         }
     }, [input, room, localParticipant, roomId]);
+
+    const handleCreatePoll = (question: string, options: string[], duration: number) => {
+        const pollId = `poll-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        const now = Date.now();
+        const pollPayload: PollData & { type: string } = {
+            type: 'POLL_CREATE',
+            id: pollId,
+            question,
+            options,
+            isAnonymous: true,
+            createdAt: now,
+            expiresAt: duration > 0 ? now + duration : undefined
+        };
+        sendMessage(JSON.stringify(pollPayload));
+        setShowPollForm(false);
+        setShowPlusMenu(false);
+    };
+
+    const handleClosePoll = (pollId: string) => {
+        setClosedPolls(prev => new Set(prev).add(pollId));
+        const closePayload = {
+            type: 'POLL_CLOSE',
+            pollId
+        };
+        sendMessage(JSON.stringify(closePayload), 'POLL_CLOSE');
+    };
+
+    const handleVote = (pollId: string, optionIndex: number) => {
+        // Prevent double voting locally (simple check)
+        if (myVotes[pollId] !== undefined) return;
+
+        // Find existing poll message to check expiration
+        const pollMsg = messages.find(m => {
+            try {
+                const data = JSON.parse(m.content);
+                return data.type === 'POLL_CREATE' && data.id === pollId;
+            } catch { return false; }
+        });
+
+        if (pollMsg) {
+            try {
+                const pollData = JSON.parse(pollMsg.content) as PollData;
+                if (pollData.expiresAt && Date.now() > pollData.expiresAt) {
+                    alert('투표가 마감되었습니다.');
+                    return;
+                }
+            } catch { }
+        }
+
+        if (closedPolls.has(pollId)) {
+            alert('투표가 종료되었습니다.');
+            return;
+        }
+
+        setMyVotes(prev => ({ ...prev, [pollId]: optionIndex }));
+
+        // Optimistic update
+        setPollVotes(prev => {
+            const currentPollVotes = prev[pollId] || {};
+            return {
+                ...prev,
+                [pollId]: {
+                    ...currentPollVotes,
+                    [optionIndex]: (currentPollVotes[optionIndex] || 0) + 1
+                }
+            };
+        });
+
+        // Broadcast invisible vote
+        const votePayload = {
+            type: 'POLL_VOTE',
+            pollId,
+            optionIndex
+        };
+        sendMessage(JSON.stringify(votePayload), 'POLL_VOTE');
+    };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -167,28 +312,26 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
     };
 
     return (
-        <div className="h-full flex flex-col bg-white/95 backdrop-blur-xl border-l border-black/5">
+        <div className="h-full flex flex-col bg-white/95 backdrop-blur-xl border-l border-black/5 relative">
             {/* Header with Tabs */}
             <div className="flex-shrink-0 border-b border-black/5">
                 <div className="flex items-center justify-between px-4 py-3">
                     <div className="flex gap-1 p-1 bg-black/5 rounded-lg">
                         <button
                             onClick={() => setActiveTab('chat')}
-                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-                                activeTab === 'chat'
-                                    ? 'bg-white text-black shadow-sm'
-                                    : 'text-black/50 hover:text-black/70'
-                            }`}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'chat'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-black/50 hover:text-black/70'
+                                }`}
                         >
                             채팅
                         </button>
                         <button
                             onClick={() => setActiveTab('voice')}
-                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
-                                activeTab === 'voice'
-                                    ? 'bg-white text-black shadow-sm'
-                                    : 'text-black/50 hover:text-black/70'
-                            }`}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${activeTab === 'voice'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-black/50 hover:text-black/70'
+                                }`}
                         >
                             음성 기록
                             {voiceRecords.length > 0 && (
@@ -208,6 +351,19 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                     </button>
                 </div>
             </div>
+
+            {/* Poll Creation Form Overlay */}
+            {showPollForm && (
+                <div className="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-end justify-center p-4">
+                    <div className="w-full max-w-sm mb-16" onClick={e => e.stopPropagation()}>
+                        <PollCreateForm
+                            onSubmit={handleCreatePoll}
+                            onCancel={() => setShowPollForm(false)}
+                        />
+                    </div>
+                    <div className="absolute inset-0 -z-10" onClick={() => setShowPollForm(false)} />
+                </div>
+            )}
 
             {/* Content */}
             {activeTab === 'chat' ? (
@@ -229,35 +385,90 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                                 <p className="text-black/25 text-xs mt-1">대화를 시작해보세요</p>
                             </div>
                         ) : (
-                            messages.map((msg) => (
-                                <div
-                                    key={msg.id}
-                                    className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}
-                                >
-                                    {!msg.isOwn && (
-                                        <span className="text-[11px] text-black/40 mb-1 ml-3 font-medium">{msg.sender}</span>
-                                    )}
+                            messages.map((msg) => {
+                                // Check if message is a poll
+                                let pollData: PollData | null = null;
+                                try {
+                                    const parsed = JSON.parse(msg.content);
+                                    if (parsed.type === 'POLL_CREATE') {
+                                        pollData = parsed;
+                                    }
+                                } catch { }
+
+                                return (
                                     <div
-                                        className={`max-w-[80%] px-4 py-2.5 ${
-                                            msg.isOwn
-                                                ? 'bg-black text-white rounded-2xl rounded-br-sm'
-                                                : 'bg-black/[0.04] text-black rounded-2xl rounded-bl-sm'
-                                        }`}
+                                        key={msg.id}
+                                        className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}
                                     >
-                                        <p className="text-[13px] leading-relaxed break-words">{msg.content}</p>
+                                        {!msg.isOwn && (
+                                            <span className="text-[11px] text-black/40 mb-1 ml-3 font-medium">{msg.sender}</span>
+                                        )}
+
+                                        {pollData ? (
+                                            <PollBubble
+                                                poll={pollData}
+                                                isOwn={msg.isOwn}
+                                                onVote={handleVote}
+                                                votes={pollVotes[pollData.id] || {}}
+                                                myVote={myVotes[pollData.id]}
+                                                isClosed={closedPolls.has(pollData.id)}
+                                                onClosePoll={() => handleClosePoll(pollData.id)}
+                                            />
+                                        ) : (
+                                            <div
+                                                className={`max-w-[80%] px-4 py-2.5 ${msg.isOwn
+                                                    ? 'bg-black text-white rounded-2xl rounded-br-sm'
+                                                    : 'bg-black/[0.04] text-black rounded-2xl rounded-bl-sm'
+                                                    }`}
+                                            >
+                                                <p className="text-[13px] leading-relaxed break-words">{msg.content}</p>
+                                            </div>
+                                        )}
+
+                                        <span className="text-[10px] text-black/25 mt-1 mx-3">
+                                            {formatTime(msg.timestamp)}
+                                        </span>
                                     </div>
-                                    <span className="text-[10px] text-black/25 mt-1 mx-3">
-                                        {formatTime(msg.timestamp)}
-                                    </span>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                         <div ref={messagesEndRef} />
                     </div>
 
                     {/* Chat Input */}
-                    <div className="flex-shrink-0 p-3 border-t border-black/5">
+                    <div className="flex-shrink-0 p-3 border-t border-black/5 relative">
+                        {/* Plus Menu Dropdown */}
+                        {showPlusMenu && (
+                            <div className="absolute bottom-16 left-4 bg-white rounded-lg shadow-lg border border-black/10 py-1 min-w-[160px] animate-in slide-in-from-bottom-2 fade-in duration-200 z-40">
+                                <button
+                                    onClick={() => {
+                                        setShowPollForm(true);
+                                        setShowPlusMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-black/5 flex items-center gap-2 text-black/80"
+                                >
+                                    <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                                    </svg>
+                                    비공개 투표 만들기
+                                </button>
+                            </div>
+                        )}
+
                         <div className="flex gap-2">
+                            {/* Plus Button */}
+                            <button
+                                onClick={() => setShowPlusMenu(!showPlusMenu)}
+                                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${showPlusMenu
+                                    ? 'bg-black text-white rotate-45'
+                                    : 'bg-black/[0.04] text-black hover:bg-black/[0.08]'
+                                    }`}
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                            </button>
+
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -268,7 +479,7 @@ export default function ChatPanel({ roomId, onClose, onNewMessage, voiceRecords 
                                 className="flex-1 px-4 py-2.5 bg-black/[0.04] border-0 rounded-full text-sm text-black placeholder-black/30 focus:outline-none focus:ring-2 focus:ring-black/10"
                             />
                             <button
-                                onClick={sendMessage}
+                                onClick={() => sendMessage()}
                                 disabled={!input.trim()}
                                 className="w-10 h-10 flex items-center justify-center bg-black hover:bg-black/80 disabled:bg-black/10 disabled:text-black/20 text-white rounded-full transition-colors"
                             >
