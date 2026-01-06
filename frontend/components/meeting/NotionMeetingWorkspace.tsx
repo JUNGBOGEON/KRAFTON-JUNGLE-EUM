@@ -9,25 +9,32 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 import ActiveMeeting from './ActiveMeeting';
 
-const LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
-
 interface NotionMeetingWorkspaceProps {
   roomId: string;
   roomTitle?: string;
   onLeave: () => void;
 }
 
-export default function NotionMeetingWorkspace({ 
-  roomId, 
+export default function NotionMeetingWorkspace({
+  roomId,
   roomTitle = '회의',
-  onLeave 
+  onLeave
 }: NotionMeetingWorkspaceProps) {
   const { user } = useAuth();
   const [token, setToken] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [liveKitUrl, setLiveKitUrl] = useState<string>(process.env.NEXT_PUBLIC_LIVEKIT_URL || '');
 
   const participantName = user?.nickname || 'Anonymous';
+
+  // Determine LiveKit URL on client side if not in env
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_LIVEKIT_URL && typeof window !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      setLiveKitUrl(`${protocol}//${window.location.hostname}:7880`);
+    }
+  }, []);
 
   // Fetch LiveKit token
   useEffect(() => {
@@ -103,7 +110,7 @@ export default function NotionMeetingWorkspace({
   }
 
   // Loading state
-  if (!token) {
+  if (!token || !liveKitUrl) {
     return (
       <div className="h-full w-full bg-white flex items-center justify-center">
         <div className="text-center">
@@ -118,7 +125,7 @@ export default function NotionMeetingWorkspace({
   return (
     <div className="h-full w-full bg-white overflow-hidden">
       <LiveKitRoom
-        serverUrl={LIVEKIT_URL}
+        serverUrl={liveKitUrl}
         token={token}
         connect={true}
         video={false}
