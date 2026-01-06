@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -16,10 +17,38 @@ import (
 	"realtime-backend/pb"
 )
 
-// Stream timeout configuration
+// Pipeline configuration constants
 const (
-	StreamIdleTimeout = 30 * time.Minute // Close stream after 30 minutes of inactivity
+	StreamIdleTimeout       = 30 * time.Minute // Close stream after 30 minutes of inactivity
+	PipelineHealthCheckTick = 30 * time.Second // Health check interval
+	BackpressureThreshold   = 0.8              // 80% buffer capacity triggers backpressure
+	MaxPendingAudioChunks   = 100              // Max audio chunks to queue per speaker
+	MaxConcurrentTranslate  = 20               // Max concurrent Translate API calls
+	MaxConcurrentTTS        = 10               // Max concurrent Polly TTS API calls
+	APICallTimeout          = 10 * time.Second // Timeout for individual API calls
 )
+
+// PipelineStatus represents overall pipeline health
+type PipelineStatus string
+
+const (
+	PipelineStatusHealthy  PipelineStatus = "healthy"
+	PipelineStatusDegraded PipelineStatus = "degraded"
+	PipelineStatusUnhealthy PipelineStatus = "unhealthy"
+)
+
+// PipelineHealth contains health information for the entire pipeline
+type PipelineHealth struct {
+	Status            PipelineStatus           `json:"status"`
+	ActiveStreams     int                      `json:"activeStreams"`
+	HealthyStreams    int                      `json:"healthyStreams"`
+	DegradedStreams   int                      `json:"degradedStreams"`
+	TotalTranscripts  int64                    `json:"totalTranscripts"`
+	TotalErrors       int64                    `json:"totalErrors"`
+	Uptime            time.Duration            `json:"uptime"`
+	StreamHealths     map[string]*StreamHealth `json:"streamHealths"`
+	BackpressureLevel float64                  `json:"backpressureLevel"`
+}
 
 // Pipeline orchestrates STT -> Translate -> TTS flow using AWS services
 type Pipeline struct {
@@ -41,6 +70,21 @@ type Pipeline struct {
 	// Target languages for this room
 	targetLanguages []string
 	targetLangsMu   sync.RWMutex
+
+	// Health monitoring
+	startTime        time.Time
+	totalTranscripts int64
+	totalErrors      int64
+	droppedMessages  int64 // Counter for dropped messages due to backpressure
+	status           PipelineStatus
+	statusMu         sync.RWMutex
+
+	// Backpressure control
+	backpressureActive int32 // atomic flag
+
+	// Semaphores for limiting concurrent API calls
+	translateSem chan struct{}
+	ttsSem       chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -89,16 +133,23 @@ func NewPipeline(ctx context.Context, cfg *appconfig.Config, pipelineCfg *Pipeli
 		cache:            NewPipelineCache(DefaultCacheConfig()),
 		speakerStreams:   make(map[string]*TranscribeStream),
 		streamLastActive: make(map[string]time.Time),
-		TranscriptChan:   make(chan *ai.TranscriptMessage, 50),
-		AudioChan:        make(chan *ai.AudioMessage, 100),
-		ErrChan:          make(chan error, 10),
+		TranscriptChan:   make(chan *ai.TranscriptMessage, 100), // Increased buffer
+		AudioChan:        make(chan *ai.AudioMessage, 200),      // Increased buffer
+		ErrChan:          make(chan error, 20),
 		targetLanguages:  targetLangs,
+		startTime:        time.Now(),
+		status:           PipelineStatusHealthy,
+		translateSem:     make(chan struct{}, MaxConcurrentTranslate), // Limit concurrent translations
+		ttsSem:           make(chan struct{}, MaxConcurrentTTS),       // Limit concurrent TTS
 		ctx:              pCtx,
 		cancel:           cancel,
 	}
 
-	// Start stream timeout checker
+	// Start background goroutines
 	go pipeline.streamTimeoutChecker()
+	go pipeline.healthCheckLoop()
+
+	log.Printf("[AWS Pipeline] Pipeline initialized successfully")
 
 	return pipeline, nil
 }
@@ -120,31 +171,159 @@ func (p *Pipeline) streamTimeoutChecker() {
 
 // closeIdleStreams closes streams that have been idle for too long
 func (p *Pipeline) closeIdleStreams() {
-	p.streamsMu.Lock()
-	defer p.streamsMu.Unlock()
+	// Collect streams to close while holding lock, then close outside lock to avoid deadlock
+	type streamToClose struct {
+		key      string
+		stream   *TranscribeStream
+		idleTime time.Duration
+	}
+	var toClose []streamToClose
 
+	p.streamsMu.Lock()
 	now := time.Now()
 	for key, lastActive := range p.streamLastActive {
-		if now.Sub(lastActive) > StreamIdleTimeout {
+		idleTime := now.Sub(lastActive)
+		if idleTime > StreamIdleTimeout {
 			if stream, exists := p.speakerStreams[key]; exists {
-				stream.Close()
+				toClose = append(toClose, streamToClose{key, stream, idleTime})
 				delete(p.speakerStreams, key)
 				delete(p.streamLastActive, key)
-				log.Printf("[AWS Pipeline] Closed idle stream: %s (inactive for %v)", key, now.Sub(lastActive))
 			}
+		}
+	}
+	p.streamsMu.Unlock()
+
+	// Close streams outside the lock to prevent deadlock with callbacks
+	for _, item := range toClose {
+		item.stream.Close()
+		log.Printf("[AWS Pipeline] Closed idle stream: %s (inactive for %v)", item.key, item.idleTime)
+	}
+}
+
+// healthCheckLoop monitors overall pipeline health
+func (p *Pipeline) healthCheckLoop() {
+	ticker := time.NewTicker(PipelineHealthCheckTick)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.updateHealth()
 		}
 	}
 }
 
+// updateHealth updates the overall pipeline health status
+func (p *Pipeline) updateHealth() {
+	p.streamsMu.RLock()
+	streamCount := len(p.speakerStreams)
+	healthyCount := 0
+	degradedCount := 0
+
+	for _, stream := range p.speakerStreams {
+		health := stream.GetHealth()
+		if health != nil {
+			switch health.Status {
+			case StreamStatusHealthy:
+				healthyCount++
+			case StreamStatusDegraded:
+				degradedCount++
+			}
+		}
+	}
+	p.streamsMu.RUnlock()
+
+	// Calculate backpressure level based on channel usage
+	transcriptUsage := float64(len(p.TranscriptChan)) / float64(cap(p.TranscriptChan))
+	audioUsage := float64(len(p.AudioChan)) / float64(cap(p.AudioChan))
+	backpressureLevel := (transcriptUsage + audioUsage) / 2
+
+	// Update backpressure flag
+	if backpressureLevel >= BackpressureThreshold {
+		atomic.StoreInt32(&p.backpressureActive, 1)
+		log.Printf("[AWS Pipeline] ⚠️ Backpressure active: %.1f%% capacity", backpressureLevel*100)
+	} else {
+		atomic.StoreInt32(&p.backpressureActive, 0)
+	}
+
+	// Determine overall status
+	p.statusMu.Lock()
+	if streamCount == 0 {
+		p.status = PipelineStatusHealthy
+	} else if healthyCount == streamCount {
+		p.status = PipelineStatusHealthy
+	} else if degradedCount > 0 || backpressureLevel >= BackpressureThreshold {
+		p.status = PipelineStatusDegraded
+	} else {
+		p.status = PipelineStatusUnhealthy
+	}
+	p.statusMu.Unlock()
+}
+
+// GetHealth returns the current health status of the pipeline
+func (p *Pipeline) GetHealth() *PipelineHealth {
+	p.streamsMu.RLock()
+	streamHealths := make(map[string]*StreamHealth)
+	healthyCount := 0
+	degradedCount := 0
+
+	for key, stream := range p.speakerStreams {
+		health := stream.GetHealth()
+		if health != nil {
+			streamHealths[key] = health
+			switch health.Status {
+			case StreamStatusHealthy:
+				healthyCount++
+			case StreamStatusDegraded:
+				degradedCount++
+			}
+		}
+	}
+	activeStreams := len(p.speakerStreams)
+	p.streamsMu.RUnlock()
+
+	// Calculate backpressure level
+	transcriptUsage := float64(len(p.TranscriptChan)) / float64(cap(p.TranscriptChan))
+	audioUsage := float64(len(p.AudioChan)) / float64(cap(p.AudioChan))
+	backpressureLevel := (transcriptUsage + audioUsage) / 2
+
+	p.statusMu.RLock()
+	status := p.status
+	p.statusMu.RUnlock()
+
+	return &PipelineHealth{
+		Status:            status,
+		ActiveStreams:     activeStreams,
+		HealthyStreams:    healthyCount,
+		DegradedStreams:   degradedCount,
+		TotalTranscripts:  atomic.LoadInt64(&p.totalTranscripts),
+		TotalErrors:       atomic.LoadInt64(&p.totalErrors),
+		Uptime:            time.Since(p.startTime),
+		StreamHealths:     streamHealths,
+		BackpressureLevel: backpressureLevel,
+	}
+}
+
+// IsBackpressureActive returns whether backpressure is currently active
+func (p *Pipeline) IsBackpressureActive() bool {
+	return atomic.LoadInt32(&p.backpressureActive) == 1
+}
+
 // ProcessAudio handles incoming audio from a speaker
 func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName string, audioData []byte) error {
-	// Debug log disabled to reduce noise
-	// log.Printf("[AWS Pipeline] ProcessAudio called: speaker=%s, lang=%s, audioSize=%d bytes",
-	// 	speakerID, sourceLang, len(audioData))
+	// Check backpressure - if active, skip some audio to prevent overflow
+	if p.IsBackpressureActive() {
+		// During backpressure, drop some audio to let the system catch up
+		// This is better than blocking or crashing
+		return nil
+	}
 
 	stream, err := p.getOrCreateStream(speakerID, sourceLang)
 	if err != nil {
 		log.Printf("[AWS Pipeline] ERROR getting/creating stream: %v", err)
+		atomic.AddInt64(&p.totalErrors, 1)
 		return err
 	}
 
@@ -156,6 +335,7 @@ func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName string, audio
 
 	if err := stream.SendAudio(audioData); err != nil {
 		log.Printf("[AWS Pipeline] ERROR sending audio: %v", err)
+		atomic.AddInt64(&p.totalErrors, 1)
 		return err
 	}
 
@@ -166,40 +346,61 @@ func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName string, audio
 func (p *Pipeline) getOrCreateStream(speakerID, sourceLang string) (*TranscribeStream, error) {
 	key := speakerID + ":" + sourceLang
 
+	// First try with read lock for fast path (existing healthy stream)
 	p.streamsMu.RLock()
 	stream, exists := p.speakerStreams[key]
 	p.streamsMu.RUnlock()
 
-	// Check if existing stream is still alive
-	if exists {
-		if stream.IsClosed() {
-			// Stream is dead, remove it and create new one
-			p.streamsMu.Lock()
-			delete(p.speakerStreams, key)
-			delete(p.streamLastActive, key)
-			p.streamsMu.Unlock()
-			log.Printf("[AWS Pipeline] Removed dead stream for speaker %s, will recreate", speakerID)
-		} else {
-			return stream, nil
+	// Fast path: return existing healthy stream
+	if exists && !stream.IsClosed() {
+		// Check if stream needs rotation (approaching 4-hour limit)
+		if stream.GetStreamAge() > StreamMaxAge-10*time.Minute {
+			log.Printf("[AWS Pipeline] Stream %s approaching max age, will rotate on next audio", speakerID)
 		}
-	}
-
-	p.streamsMu.Lock()
-	defer p.streamsMu.Unlock()
-
-	// Double-check
-	if stream, exists := p.speakerStreams[key]; exists {
 		return stream, nil
 	}
 
-	// Create new stream
+	// Slow path: need to create or replace stream
+	// Use single write lock to prevent race conditions
+	p.streamsMu.Lock()
+	defer p.streamsMu.Unlock()
+
+	// Double-check under write lock - another goroutine may have created it
+	if stream, exists := p.speakerStreams[key]; exists {
+		if !stream.IsClosed() {
+			return stream, nil
+		}
+		// Stream is dead, remove it
+		delete(p.speakerStreams, key)
+		delete(p.streamLastActive, key)
+		log.Printf("[AWS Pipeline] Removed dead stream for speaker %s, will recreate", speakerID)
+	}
+
+	// Create new stream (still holding write lock to prevent concurrent creation)
 	stream, err := p.transcribe.StartStream(p.ctx, speakerID, sourceLang)
 	if err != nil {
 		log.Printf("[AWS Pipeline] Failed to create Transcribe stream for speaker %s: %v", speakerID, err)
+		atomic.AddInt64(&p.totalErrors, 1)
 		return nil, err
 	}
 
+	// Set callbacks for stream lifecycle events
+	// Note: callbacks should not try to acquire streamsMu to avoid deadlock
+	stream.SetCallbacks(
+		// onDead callback - just log, don't modify map (will be cleaned up lazily)
+		func(spkID, srcLang string, attempt int) {
+			log.Printf("[AWS Pipeline] ☠️ Stream died for speaker %s (lang: %s)", spkID, srcLang)
+			atomic.AddInt64(&p.totalErrors, 1)
+			// Stream will be removed lazily on next getOrCreateStream call
+		},
+		// onReconnect callback
+		func(spkID, srcLang string, attempt int) {
+			log.Printf("[AWS Pipeline] 🔄 Stream reconnecting for speaker %s (attempt: %d)", spkID, attempt)
+		},
+	)
+
 	p.speakerStreams[key] = stream
+	p.streamLastActive[key] = time.Now()
 
 	// Start processing transcripts from this stream
 	go p.processTranscripts(stream, sourceLang)
@@ -218,6 +419,9 @@ func (p *Pipeline) processTranscripts(stream *TranscribeStream, sourceLang strin
 	var lastTTSSentText string
 
 	for result := range stream.TranscriptChan {
+		// Increment transcript counter
+		atomic.AddInt64(&p.totalTranscripts, 1)
+
 		log.Printf("[AWS Pipeline] 📨 Received transcript: '%s' (isFinal: %v, confidence: %.2f, lang: %s)",
 			result.Text, result.IsFinal, result.Confidence, sourceLang)
 
@@ -558,7 +762,7 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 	log.Printf("[AWS Pipeline] Processing final transcript from %s: '%s' (lang: %s, confidence: %.2f)",
 		result.SpeakerID, result.Text, sourceLang, result.Confidence)
 
-	// Translate to all target languages (with caching)
+	// Translate to all target languages (with caching and semaphore)
 	translations := make(map[string]*TranslationResult)
 	var translateWg sync.WaitGroup
 	var translateMu sync.Mutex
@@ -572,7 +776,7 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 		go func(tgtLang string) {
 			defer translateWg.Done()
 
-			// Check cache first
+			// Check cache first (before acquiring semaphore)
 			if cached, ok := p.cache.GetTranslation(result.Text, sourceLang, tgtLang); ok {
 				translateMu.Lock()
 				translations[tgtLang] = cached
@@ -580,10 +784,23 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 				return
 			}
 
-			// Call Translate API
-			trans, err := p.translate.Translate(ctx, result.Text, sourceLang, tgtLang)
+			// Acquire translate semaphore with timeout
+			select {
+			case p.translateSem <- struct{}{}:
+				defer func() { <-p.translateSem }()
+			case <-ctx.Done():
+				log.Printf("[AWS Pipeline] Translation timeout waiting for semaphore: %s", tgtLang)
+				return
+			}
+
+			// Call Translate API with timeout
+			apiCtx, apiCancel := context.WithTimeout(ctx, APICallTimeout)
+			defer apiCancel()
+
+			trans, err := p.translate.Translate(apiCtx, result.Text, sourceLang, tgtLang)
 			if err != nil {
 				log.Printf("[AWS Pipeline] Translation error for %s: %v", tgtLang, err)
+				atomic.AddInt64(&p.totalErrors, 1)
 				return
 			}
 
@@ -622,30 +839,21 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 		}
 	}
 
-	// Send transcript
-	select {
-	case p.TranscriptChan <- transcriptMsg:
-		log.Printf("[AWS Pipeline] Sent transcript with %d translations", len(transcriptMsg.Translations))
-	default:
-		log.Printf("[AWS Pipeline] Transcript channel full")
+	// Send transcript with graceful degradation
+	if !p.sendTranscript(transcriptMsg) {
+		atomic.AddInt64(&p.droppedMessages, 1)
 	}
 
-	// Generate TTS for each target language (parallel, with caching)
+	// Generate TTS for each target language (parallel, with caching and semaphore)
 	log.Printf("[AWS Pipeline] 🔊 Generating TTS for %d translations", len(translations))
 
 	var wg sync.WaitGroup
 	for lang, trans := range translations {
 		// Skip TTS for original language
 		if lang == sourceLang {
-			log.Printf("[AWS Pipeline] ⏭️ Skipping TTS for source language: %s", lang)
 			continue
 		}
-		if trans == nil {
-			log.Printf("[AWS Pipeline] ⏭️ Skipping TTS: translation is nil for %s", lang)
-			continue
-		}
-		if trans.TranslatedText == "" {
-			log.Printf("[AWS Pipeline] ⏭️ Skipping TTS: empty translation for %s", lang)
+		if trans == nil || trans.TranslatedText == "" {
 			continue
 		}
 
@@ -653,26 +861,35 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 		go func(targetLang, text string) {
 			defer wg.Done()
 
-			log.Printf("[AWS Pipeline] 🎙️ Generating TTS for '%s' in %s", text, targetLang)
-
 			var audioData []byte
 			var format string = "mp3"
 			var sampleRate int32 = 24000
 
-			// Check TTS cache first
+			// Check TTS cache first (before acquiring semaphore)
 			if cached, ok := p.cache.GetTTS(text, targetLang); ok {
 				audioData = cached
-				log.Printf("[AWS Pipeline] 📦 TTS cache hit for %s", targetLang)
 			} else {
-				// Call Polly API
-				audio, err := p.polly.Synthesize(ctx, text, targetLang)
+				// Acquire TTS semaphore with timeout
+				select {
+				case p.ttsSem <- struct{}{}:
+					defer func() { <-p.ttsSem }()
+				case <-ctx.Done():
+					log.Printf("[AWS Pipeline] TTS timeout waiting for semaphore: %s", targetLang)
+					return
+				}
+
+				// Call Polly API with timeout
+				apiCtx, apiCancel := context.WithTimeout(ctx, APICallTimeout)
+				defer apiCancel()
+
+				audio, err := p.polly.Synthesize(apiCtx, text, targetLang)
 				if err != nil {
 					log.Printf("[AWS Pipeline] ❌ TTS error for %s: %v", targetLang, err)
+					atomic.AddInt64(&p.totalErrors, 1)
 					return
 				}
 
 				if len(audio.AudioData) == 0 {
-					log.Printf("[AWS Pipeline] ⚠️ Empty audio data from Polly for %s", targetLang)
 					return
 				}
 
@@ -693,16 +910,50 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 				SpeakerParticipantID: result.SpeakerID,
 			}
 
-			select {
-			case p.AudioChan <- audioMsg:
-				log.Printf("[AWS Pipeline] ✅ Sent TTS audio for %s (%d bytes)", targetLang, len(audioData))
-			default:
-				log.Printf("[AWS Pipeline] ⚠️ Audio channel full for %s", targetLang)
+			if !p.sendAudio(audioMsg) {
+				atomic.AddInt64(&p.droppedMessages, 1)
 			}
 		}(lang, trans.TranslatedText)
 	}
 	wg.Wait()
-	log.Printf("[AWS Pipeline] 🔊 TTS generation complete")
+}
+
+// sendTranscript sends a transcript message with graceful degradation
+func (p *Pipeline) sendTranscript(msg *ai.TranscriptMessage) bool {
+	// Try non-blocking send first
+	select {
+	case p.TranscriptChan <- msg:
+		return true
+	default:
+	}
+
+	// Channel full - try with short timeout for graceful degradation
+	select {
+	case p.TranscriptChan <- msg:
+		return true
+	case <-time.After(100 * time.Millisecond):
+		log.Printf("[AWS Pipeline] ⚠️ Transcript channel full, dropping message")
+		return false
+	}
+}
+
+// sendAudio sends an audio message with graceful degradation
+func (p *Pipeline) sendAudio(msg *ai.AudioMessage) bool {
+	// Try non-blocking send first
+	select {
+	case p.AudioChan <- msg:
+		return true
+	default:
+	}
+
+	// Channel full - try with short timeout for graceful degradation
+	select {
+	case p.AudioChan <- msg:
+		return true
+	case <-time.After(100 * time.Millisecond):
+		log.Printf("[AWS Pipeline] ⚠️ Audio channel full, dropping message for %s", msg.TargetLanguage)
+		return false
+	}
 }
 
 // processFinalTranscriptNoTTS handles translation for final transcripts, but skips TTS for specified language
@@ -728,7 +979,7 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 
 	log.Printf("[AWS Pipeline] Processing final transcript (skip TTS for %s): '%s'", skipTTSLang, result.Text)
 
-	// Translate to all target languages (with caching)
+	// Translate to all target languages (with caching and semaphore)
 	translations := make(map[string]*TranslationResult)
 	var translateWg sync.WaitGroup
 	var translateMu sync.Mutex
@@ -750,10 +1001,22 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 				return
 			}
 
-			// Call Translate API
-			trans, err := p.translate.Translate(ctx, result.Text, sourceLang, tgtLang)
+			// Acquire translate semaphore with timeout
+			select {
+			case p.translateSem <- struct{}{}:
+				defer func() { <-p.translateSem }()
+			case <-ctx.Done():
+				return
+			}
+
+			// Call Translate API with timeout
+			apiCtx, apiCancel := context.WithTimeout(ctx, APICallTimeout)
+			defer apiCancel()
+
+			trans, err := p.translate.Translate(apiCtx, result.Text, sourceLang, tgtLang)
 			if err != nil {
 				log.Printf("[AWS Pipeline] Translation error for %s: %v", tgtLang, err)
+				atomic.AddInt64(&p.totalErrors, 1)
 				return
 			}
 
@@ -792,24 +1055,15 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 		}
 	}
 
-	// Send transcript
-	select {
-	case p.TranscriptChan <- transcriptMsg:
-		log.Printf("[AWS Pipeline] Sent transcript (NoTTS for %s) with %d translations", skipTTSLang, len(transcriptMsg.Translations))
-	default:
-		log.Printf("[AWS Pipeline] Transcript channel full")
+	// Send transcript with graceful degradation
+	if !p.sendTranscript(transcriptMsg) {
+		atomic.AddInt64(&p.droppedMessages, 1)
 	}
 
-	// Generate TTS for each target language EXCEPT skipTTSLang
+	// Generate TTS for each target language EXCEPT skipTTSLang (with semaphore)
 	var wg sync.WaitGroup
 	for lang, trans := range translations {
-		// Skip TTS for original language
-		if lang == sourceLang {
-			continue
-		}
-		// Skip TTS for the specified language (already sent chunk TTS)
-		if lang == skipTTSLang {
-			log.Printf("[AWS Pipeline] ⏭️ Skipping final TTS for %s (chunk TTS already sent)", lang)
+		if lang == sourceLang || lang == skipTTSLang {
 			continue
 		}
 		if trans == nil || trans.TranslatedText == "" {
@@ -820,8 +1074,6 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 		go func(targetLang, text string) {
 			defer wg.Done()
 
-			log.Printf("[AWS Pipeline] 🎙️ Generating TTS for '%s' in %s", text, targetLang)
-
 			var audioData []byte
 			var format string = "mp3"
 			var sampleRate int32 = 24000
@@ -830,10 +1082,22 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 			if cached, ok := p.cache.GetTTS(text, targetLang); ok {
 				audioData = cached
 			} else {
-				// Call Polly API
-				audio, err := p.polly.Synthesize(ctx, text, targetLang)
+				// Acquire TTS semaphore with timeout
+				select {
+				case p.ttsSem <- struct{}{}:
+					defer func() { <-p.ttsSem }()
+				case <-ctx.Done():
+					return
+				}
+
+				// Call Polly API with timeout
+				apiCtx, apiCancel := context.WithTimeout(ctx, APICallTimeout)
+				defer apiCancel()
+
+				audio, err := p.polly.Synthesize(apiCtx, text, targetLang)
 				if err != nil {
 					log.Printf("[AWS Pipeline] ❌ TTS error for %s: %v", targetLang, err)
+					atomic.AddInt64(&p.totalErrors, 1)
 					return
 				}
 
@@ -858,11 +1122,8 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 				SpeakerParticipantID: result.SpeakerID,
 			}
 
-			select {
-			case p.AudioChan <- audioMsg:
-				log.Printf("[AWS Pipeline] ✅ Sent TTS audio for %s (%d bytes)", targetLang, len(audioData))
-			default:
-				log.Printf("[AWS Pipeline] ⚠️ Audio channel full for %s", targetLang)
+			if !p.sendAudio(audioMsg) {
+				atomic.AddInt64(&p.droppedMessages, 1)
 			}
 		}(lang, trans.TranslatedText)
 	}
