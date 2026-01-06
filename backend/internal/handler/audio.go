@@ -778,11 +778,11 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 
 	// 연결 종료 시 정리
 	defer func() {
-		// FIX: Also remove speaker when listener disconnects.
-		// This ensures that stale speaker data and Transcribe streams are cleaned up
-		// when users leave without sending an explicit "speaker_leave" message
-		// (e.g., browser close, network disconnect).
-		room.RemoveSpeaker(listenerID)
+		// FIX: Remove all speakers that this listener has sent audio for.
+		// In the LiveKit architecture, listener A captures speaker B's audio and sends it to the server.
+		// When listener A disconnects, we need to clean up speaker B's Transcribe stream,
+		// not speaker A (who may not exist as a speaker).
+		room.RemoveSpeakersForSender(listenerID)
 		room.RemoveListener(listenerID)
 		log.Printf("🔌 [Room %s] Listener disconnected: %s", roomID, listenerID)
 		c.Close()
@@ -820,6 +820,10 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 				room.AddOrUpdateSpeaker(speakerID, sourceLang, nickname, profileImg)
 				log.Printf("📢 [Room %s] Speaker registered from DB: %s (nickname: %s)", roomID, speakerID, nickname)
 			}
+
+			// FIX: Track which speaker this listener has sent audio for.
+			// This allows proper cleanup when the listener disconnects.
+			room.TrackSpeakerForSender(listenerID, speakerID)
 
 			// Room에 오디오 전송
 			room.SendAudio(speakerID, sourceLang, audioData)

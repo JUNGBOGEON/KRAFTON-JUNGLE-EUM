@@ -36,18 +36,19 @@ type RoomHub struct {
 
 // Room represents a single room with listeners and speakers
 type Room struct {
-	ID          string
-	Listeners   map[string]*Listener
-	Speakers    map[string]*Speaker
-	grpcStream  *ai.ChatStream     // Python gRPC 스트림
-	awsPipeline *awsai.Pipeline    // AWS 파이프라인
-	broadcast   chan *BroadcastMessage
-	audioIn     chan *AudioMessage
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
-	hub         *RoomHub
-	isRunning   bool
+	ID               string
+	Listeners        map[string]*Listener
+	Speakers         map[string]*Speaker
+	SenderToSpeakers map[string]map[string]bool // FIX: Track which speakers each sender (listener) has sent audio for
+	grpcStream       *ai.ChatStream             // Python gRPC 스트림
+	awsPipeline      *awsai.Pipeline            // AWS 파이프라인
+	broadcast        chan *BroadcastMessage
+	audioIn          chan *AudioMessage
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.RWMutex
+	hub              *RoomHub
+	isRunning        bool
 }
 
 // Listener represents a user receiving translations
@@ -146,15 +147,16 @@ func (h *RoomHub) GetOrCreateRoom(roomID string) *Room {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	room := &Room{
-		ID:        roomID,
-		Listeners: make(map[string]*Listener),
-		Speakers:  make(map[string]*Speaker),
-		broadcast: make(chan *BroadcastMessage, 100),
-		audioIn:   make(chan *AudioMessage, 100),
-		ctx:       ctx,
-		cancel:    cancel,
-		hub:       h,
-		isRunning: false,
+		ID:               roomID,
+		Listeners:        make(map[string]*Listener),
+		Speakers:         make(map[string]*Speaker),
+		SenderToSpeakers: make(map[string]map[string]bool), // FIX: Initialize sender-to-speakers tracking
+		broadcast:        make(chan *BroadcastMessage, 100),
+		audioIn:          make(chan *AudioMessage, 100),
+		ctx:              ctx,
+		cancel:           cancel,
+		hub:              h,
+		isRunning:        false,
 	}
 
 	h.rooms[roomID] = room
@@ -304,6 +306,45 @@ func (r *Room) RemoveSpeaker(speakerID string) {
 	if isEmpty {
 		go r.hub.RemoveRoom(r.ID)
 	}
+}
+
+// TrackSpeakerForSender tracks which speaker a sender (listener) has sent audio for.
+// This allows proper cleanup when the sender disconnects.
+func (r *Room) TrackSpeakerForSender(senderID, speakerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.SenderToSpeakers == nil {
+		r.SenderToSpeakers = make(map[string]map[string]bool)
+	}
+	if r.SenderToSpeakers[senderID] == nil {
+		r.SenderToSpeakers[senderID] = make(map[string]bool)
+	}
+	r.SenderToSpeakers[senderID][speakerID] = true
+}
+
+// RemoveSpeakersForSender removes all speakers that a sender has sent audio for.
+// Called when a listener disconnects to clean up their associated speaker streams.
+func (r *Room) RemoveSpeakersForSender(senderID string) {
+	r.mu.Lock()
+	speakers, exists := r.SenderToSpeakers[senderID]
+	if !exists || len(speakers) == 0 {
+		r.mu.Unlock()
+		return
+	}
+	// Copy speaker IDs and remove from tracking
+	speakerIDs := make([]string, 0, len(speakers))
+	for speakerID := range speakers {
+		speakerIDs = append(speakerIDs, speakerID)
+	}
+	delete(r.SenderToSpeakers, senderID)
+	r.mu.Unlock()
+
+	// Remove each speaker (this will also clean up Transcribe streams)
+	for _, speakerID := range speakerIDs {
+		r.RemoveSpeaker(speakerID)
+	}
+	log.Printf("[Room %s] Cleaned up %d speakers for disconnected sender: %s", r.ID, len(speakerIDs), senderID)
 }
 
 // HasSpeaker checks if a speaker exists in the room
