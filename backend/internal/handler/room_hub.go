@@ -306,6 +306,14 @@ func (r *Room) RemoveSpeaker(speakerID string) {
 	}
 }
 
+// HasSpeaker checks if a speaker exists in the room
+func (r *Room) HasSpeaker(speakerID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.Speakers[speakerID]
+	return exists
+}
+
 // AddOrUpdateSpeaker adds or updates a speaker
 func (r *Room) AddOrUpdateSpeaker(speakerID, sourceLang, nickname, profileImg string) {
 	r.mu.Lock()
@@ -917,15 +925,19 @@ func (r *Room) processAudioAWS(msg *AudioMessage) {
 
 	// Speaker 정보 결정
 	speakerName := msg.SpeakerID
-	if speaker != nil && speaker.Nickname != "" {
-		speakerName = speaker.Nickname
+	profileImg := ""
+	if speaker != nil {
+		if speaker.Nickname != "" {
+			speakerName = speaker.Nickname
+		}
+		profileImg = speaker.ProfileImg
 	}
 
 	// Debug log disabled to reduce noise
 	// log.Printf("[Room %s] 🎤 Processing audio: speaker=%s, lang=%s, size=%d bytes",
 	// 	r.ID, msg.SpeakerID, msg.SourceLang, len(msg.AudioData))
 
-	if err := pipeline.ProcessAudio(msg.SpeakerID, msg.SourceLang, speakerName, msg.AudioData); err != nil {
+	if err := pipeline.ProcessAudio(msg.SpeakerID, msg.SourceLang, speakerName, profileImg, msg.AudioData); err != nil {
 		log.Printf("[Room %s] ❌ AWS pipeline error: %v", r.ID, err)
 	}
 }

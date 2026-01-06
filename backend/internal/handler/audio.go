@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,6 +90,37 @@ func (h *AudioHandler) Close() error {
 // GetRoomHub returns the RoomHub instance (for setting DB)
 func (h *AudioHandler) GetRoomHub() *RoomHub {
 	return h.roomHub
+}
+
+// getUserInfoFromDB retrieves user nickname and profile image from database
+func (h *AudioHandler) getUserInfoFromDB(speakerID string) (nickname string, profileImg string) {
+	// Default to speakerID as nickname
+	nickname = speakerID
+	profileImg = ""
+
+	if h.db == nil {
+		return
+	}
+
+	// Try to parse speakerID as int64 (User.ID)
+	speakerID = strings.TrimSpace(speakerID)
+	userID, err := strconv.ParseInt(speakerID, 10, 64)
+	if err != nil {
+		// Not a numeric ID, return defaults
+		return
+	}
+
+	var user model.User
+	if err := h.db.Select("nickname, profile_img").First(&user, userID).Error; err != nil {
+		// User not found, return defaults
+		return
+	}
+
+	nickname = user.Nickname
+	if user.ProfileImg != nil {
+		profileImg = *user.ProfileImg
+	}
+	return
 }
 
 // RoomTranscriptResponse is the response for room transcripts
@@ -772,12 +805,16 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 			// Debug log disabled to reduce noise
 			// log.Printf("🎵 [Room %s] Received audio: %d bytes from listener %s", roomID, len(msg), listenerID)
 
-			speakerID := string(msg[:36])
-			sourceLang := string(msg[36:38])
+			speakerID := strings.TrimSpace(string(msg[:36]))
+			sourceLang := strings.TrimSpace(string(msg[36:38]))
 			audioData := msg[38:]
 
-			// Speaker 정보 업데이트 (있으면)
-			room.AddOrUpdateSpeaker(speakerID, sourceLang, "", "")
+			// Speaker 정보 업데이트 - DB에서 가져오기 (speaker가 없을 때만 조회)
+			if !room.HasSpeaker(speakerID) {
+				nickname, profileImg := h.getUserInfoFromDB(speakerID)
+				room.AddOrUpdateSpeaker(speakerID, sourceLang, nickname, profileImg)
+				log.Printf("📢 [Room %s] Speaker registered from DB: %s (nickname: %s)", roomID, speakerID, nickname)
+			}
 
 			// Room에 오디오 전송
 			room.SendAudio(speakerID, sourceLang, audioData)

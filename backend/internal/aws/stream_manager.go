@@ -82,22 +82,24 @@ func (sm *StreamManager) SetOnStreamDead(callback func(sourceLang string)) {
 	sm.onStreamDead = callback
 }
 
-// GetOrCreateStream gets an existing stream or creates a new one for the source language.
-// Multiple speakers with the same sourceLang will share the stream.
+// GetOrCreateStream gets an existing stream or creates a new one for the speaker.
+// FIX: Changed from language-based pooling to speaker-based streams.
+// Each speaker now gets their own stream to preserve speaker identity.
+// This fixes the "lang-ko" speaker ID issue and enables proper bidirectional translation.
 func (sm *StreamManager) GetOrCreateStream(speakerID, sourceLang string) (*TranscribeStream, error) {
+	// Use speakerID as the stream key (not sourceLang) to preserve speaker identity
+	streamKey := speakerID
+
 	// Fast path: check if stream exists with read lock
 	sm.mu.RLock()
-	if ref, exists := sm.streams[sourceLang]; exists {
+	if ref, exists := sm.streams[streamKey]; exists {
 		if ref.Stream != nil && !ref.Stream.IsClosed() {
 			ref.mu.Lock()
-			ref.RefCount++
-			ref.SpeakerIDs[speakerID] = true
 			ref.LastActive = time.Now()
-			currentRef := ref.RefCount // Capture while locked to avoid race
 			ref.mu.Unlock()
 			sm.mu.RUnlock()
-			log.Printf("[StreamManager] Reusing stream for lang=%s (speaker=%s, refCount=%d)",
-				sourceLang, speakerID, currentRef)
+			log.Printf("[StreamManager] Reusing stream for speaker=%s (lang=%s)",
+				speakerID, sourceLang)
 			return ref.Stream, nil
 		}
 	}
@@ -108,28 +110,25 @@ func (sm *StreamManager) GetOrCreateStream(speakerID, sourceLang string) (*Trans
 	defer sm.mu.Unlock()
 
 	// Double-check: another goroutine may have created it
-	if ref, exists := sm.streams[sourceLang]; exists {
+	if ref, exists := sm.streams[streamKey]; exists {
 		if ref.Stream != nil && !ref.Stream.IsClosed() {
 			ref.mu.Lock()
-			ref.RefCount++
-			ref.SpeakerIDs[speakerID] = true
 			ref.LastActive = time.Now()
-			currentRef := ref.RefCount // Capture while locked to avoid race
 			ref.mu.Unlock()
-			log.Printf("[StreamManager] Reusing stream for lang=%s (speaker=%s, refCount=%d)",
-				sourceLang, speakerID, currentRef)
+			log.Printf("[StreamManager] Reusing stream for speaker=%s (lang=%s)",
+				speakerID, sourceLang)
 			return ref.Stream, nil
 		}
 		// Stream is dead, remove it immediately
-		delete(sm.streams, sourceLang)
-		log.Printf("[StreamManager] Removed dead stream for lang=%s", sourceLang)
+		delete(sm.streams, streamKey)
+		log.Printf("[StreamManager] Removed dead stream for speaker=%s", speakerID)
 	}
 
 	// Create new stream using shared TranscribeClient
-	// Note: speakerID is used as a namespace prefix for this language stream
-	stream, err := sm.clientPool.Transcribe.StartStream(sm.ctx, "lang-"+sourceLang, sourceLang)
+	// FIX: Use actual speakerID instead of "lang-"+sourceLang
+	stream, err := sm.clientPool.Transcribe.StartStream(sm.ctx, speakerID, sourceLang)
 	if err != nil {
-		log.Printf("[StreamManager] Failed to create stream for lang=%s: %v", sourceLang, err)
+		log.Printf("[StreamManager] Failed to create stream for speaker=%s (lang=%s): %v", speakerID, sourceLang, err)
 		return nil, err
 	}
 
@@ -137,19 +136,19 @@ func (sm *StreamManager) GetOrCreateStream(speakerID, sourceLang string) (*Trans
 	stream.SetCallbacks(
 		// onDead callback
 		func(spkID, srcLang string, attempt int) {
-			log.Printf("[StreamManager] ☠️ Stream died for lang=%s", srcLang)
-			sm.removeStreamImmediate(srcLang)
+			log.Printf("[StreamManager] ☠️ Stream died for speaker=%s", spkID)
+			sm.removeStreamImmediate(spkID) // Use speakerID as key
 			if sm.onStreamDead != nil {
-				sm.onStreamDead(srcLang)
+				sm.onStreamDead(spkID)
 			}
 		},
 		// onReconnect callback
 		func(spkID, srcLang string, attempt int) {
-			log.Printf("[StreamManager] 🔄 Stream reconnecting for lang=%s (attempt=%d)", srcLang, attempt)
+			log.Printf("[StreamManager] 🔄 Stream reconnecting for speaker=%s (attempt=%d)", spkID, attempt)
 		},
 	)
 
-	// Store stream reference
+	// Store stream reference with speakerID as key
 	ref := &StreamRef{
 		Stream:     stream,
 		SourceLang: sourceLang,
@@ -157,16 +156,19 @@ func (sm *StreamManager) GetOrCreateStream(speakerID, sourceLang string) (*Trans
 		SpeakerIDs: map[string]bool{speakerID: true},
 		LastActive: time.Now(),
 	}
-	sm.streams[sourceLang] = ref
+	sm.streams[streamKey] = ref
 
-	log.Printf("[StreamManager] Created new stream for lang=%s (speaker=%s)", sourceLang, speakerID)
+	log.Printf("[StreamManager] Created new stream for speaker=%s (lang=%s)", speakerID, sourceLang)
 	return stream, nil
 }
 
-// SendAudio sends audio to the appropriate stream for the speaker's source language
+// SendAudio sends audio to the speaker's stream
+// FIX: Changed to use speakerID as stream key
 func (sm *StreamManager) SendAudio(speakerID, sourceLang string, audioData []byte) error {
+	streamKey := speakerID // Use speakerID as key
+
 	sm.mu.RLock()
-	ref, exists := sm.streams[sourceLang]
+	ref, exists := sm.streams[streamKey]
 	sm.mu.RUnlock()
 
 	if !exists || ref.Stream == nil {
@@ -186,54 +188,39 @@ func (sm *StreamManager) SendAudio(speakerID, sourceLang string, audioData []byt
 	return ref.Stream.SendAudio(audioData)
 }
 
-// ReleaseSpeaker decrements the reference count for a speaker
+// ReleaseSpeaker closes the speaker's stream
+// FIX: Changed to use speakerID as stream key (each speaker has own stream now)
 func (sm *StreamManager) ReleaseSpeaker(speakerID, sourceLang string) {
+	streamKey := speakerID // Use speakerID as key
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	ref, exists := sm.streams[sourceLang]
+	ref, exists := sm.streams[streamKey]
 	if !exists {
 		return
 	}
 
-	ref.mu.Lock()
-	// Check if speaker was actually using this stream
-	if _, speakerExists := ref.SpeakerIDs[speakerID]; !speakerExists {
-		ref.mu.Unlock()
-		return // Speaker wasn't tracked, don't decrement
+	// Close and remove the speaker's stream
+	if ref.Stream != nil {
+		ref.Stream.Close()
 	}
-	delete(ref.SpeakerIDs, speakerID)
-	// Prevent negative refCount
-	if ref.RefCount > 0 {
-		ref.RefCount--
-	}
-	currentRef := ref.RefCount
-	ref.mu.Unlock()
-
-	log.Printf("[StreamManager] Released speaker=%s from lang=%s (refCount=%d)",
-		speakerID, sourceLang, currentRef)
-
-	// If no more speakers, close the stream immediately
-	if currentRef <= 0 {
-		if ref.Stream != nil {
-			ref.Stream.Close()
-		}
-		delete(sm.streams, sourceLang)
-		log.Printf("[StreamManager] Closed and removed stream for lang=%s (no more speakers)", sourceLang)
-	}
+	delete(sm.streams, streamKey)
+	log.Printf("[StreamManager] Released and closed stream for speaker=%s (lang=%s)", speakerID, sourceLang)
 }
 
 // removeStreamImmediate removes a dead stream immediately (called from callback)
-func (sm *StreamManager) removeStreamImmediate(sourceLang string) {
+// FIX: Parameter is now speakerID (stream key), not sourceLang
+func (sm *StreamManager) removeStreamImmediate(streamKey string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	if ref, exists := sm.streams[sourceLang]; exists {
+	if ref, exists := sm.streams[streamKey]; exists {
 		if ref.Stream != nil && !ref.Stream.IsClosed() {
 			ref.Stream.Close()
 		}
-		delete(sm.streams, sourceLang)
-		log.Printf("[StreamManager] Immediately removed dead stream for lang=%s", sourceLang)
+		delete(sm.streams, streamKey)
+		log.Printf("[StreamManager] Immediately removed dead stream for speaker=%s", streamKey)
 	}
 }
 
