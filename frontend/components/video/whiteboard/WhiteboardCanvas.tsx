@@ -22,7 +22,14 @@ export default function WhiteboardCanvas() {
     const localCursorRef = useRef<HTMLDivElement>(null);
     const appRef = useRef<PIXI.Application | null>(null);
     const drawingContainerRef = useRef<PIXI.Container | null>(null);
-    const currentGraphicsRef = useRef<{
+    const currentLocalGraphicsRef = useRef<{
+        graphics: PIXI.Graphics;
+        color: number;
+        width: number;
+        tool: WhiteboardTool;
+    } | null>(null);
+
+    const currentRemoteGraphicsRef = useRef<{
         graphics: PIXI.Graphics;
         color: number;
         width: number;
@@ -156,26 +163,30 @@ export default function WhiteboardCanvas() {
         // Real smoothing happens in onPointerMove (local) and loadHistory/batch (arrays).
         if (!drawingContainerRef.current) return;
 
+        // DEBUG: Trace remote drawing
+        console.log('[WhiteboardCanvas] drawLine called. Color:', color.toString(16), 'Width:', width);
+
         const isEraser = color === 0xffffff;
         // Legacy drawer doesn't support Magic Pen styles yet (or we infer from context?)
         // For now, treat as pen.
 
         let graphics: PIXI.Graphics;
-        const sameProp = currentGraphicsRef.current &&
-            currentGraphicsRef.current.color === color &&
-            currentGraphicsRef.current.width === width &&
-            ((isEraser && currentGraphicsRef.current.tool === 'eraser') || (!isEraser && currentGraphicsRef.current.tool !== 'eraser'));
+        const sameProp = currentRemoteGraphicsRef.current &&
+            currentRemoteGraphicsRef.current.color === color &&
+            currentRemoteGraphicsRef.current.width === width &&
+            ((isEraser && currentRemoteGraphicsRef.current.tool === 'eraser') || (!isEraser && currentRemoteGraphicsRef.current.tool !== 'eraser'));
 
-        if (sameProp && currentGraphicsRef.current) {
-            graphics = currentGraphicsRef.current.graphics;
+        if (sameProp && currentRemoteGraphicsRef.current) {
+            graphics = currentRemoteGraphicsRef.current.graphics;
         } else {
             graphics = new PIXI.Graphics();
             if (isEraser) {
-                graphics.blendMode = 'erase';
+                // FIX: Use 'dst-out' for Eraser in WebGPU to correctly punch holes
+                graphics.blendMode = 'dst-out' as any;
             }
             drawingContainerRef.current.addChild(graphics);
 
-            currentGraphicsRef.current = {
+            currentRemoteGraphicsRef.current = {
                 graphics,
                 color,
                 width,
@@ -187,6 +198,17 @@ export default function WhiteboardCanvas() {
         graphics.lineTo(x, y);
         graphics.stroke({ width, color, cap: 'round', join: 'round' });
     }, []);
+
+    // Stable references for event listeners to avoid re-init
+    const broadcastCursorRef = useRef(broadcastCursor);
+    const drawLineRef = useRef(drawLine);
+
+    useEffect(() => {
+        broadcastCursorRef.current = broadcastCursor;
+        drawLineRef.current = drawLine;
+    }, [broadcastCursor, drawLine]);
+
+    // Debug tracking removed
 
     // PIXI initialization
     useEffect(() => {
@@ -284,7 +306,13 @@ export default function WhiteboardCanvas() {
 
             // Broadcast cursor position (networking)
             const cursorPoint = getLocalPoint(e.clientX, e.clientY);
-            broadcastCursor(cursorPoint.x, cursorPoint.y);
+            // Use REF to avoid dependency
+            broadcastCursorRef.current(cursorPoint.x, cursorPoint.y);
+
+            // FIX: Ensure Magic Pen tool state is broadcast correctly via cursor or context
+            // Currently broadcastCursor uses toolState from hook, which updates on state change.
+            // But we need to make sure 'magic-pen' is treated as a drawing tool.
+
 
             // (Local cursor update moved below to use stabilized/constrained point)
 
@@ -395,6 +423,8 @@ export default function WhiteboardCanvas() {
 
             const color = toolRef.current === 'eraser' ? 0xffffff : penColorRef.current;
             const baseSize = toolRef.current === 'eraser' ? eraserSizeRef.current : penSizeRef.current;
+            // FIX: Revert to Screen-Constant Sizing.
+            // Width is calculated so that it renders as 'baseSize' pixels on screen regardless of zoom.
             const width = baseSize / scaleRef.current;
 
             // **NEW: Polygon Rendering for Active Stroke**
@@ -415,15 +445,16 @@ export default function WhiteboardCanvas() {
 
             // 2. Prepare Graphics
             let graphics: PIXI.Graphics;
-            if (currentGraphicsRef.current) {
-                graphics = currentGraphicsRef.current.graphics;
+            if (currentLocalGraphicsRef.current) {
+                graphics = currentLocalGraphicsRef.current.graphics;
             } else {
                 graphics = new PIXI.Graphics();
                 if (toolRef.current === 'eraser') {
-                    graphics.blendMode = 'erase';
+                    // FIX: Use 'dst-out' instead of 'erase' for WebGPU compatibility
+                    graphics.blendMode = 'dst-out' as any;
                 }
                 drawingContainerRef.current.addChild(graphics);
-                currentGraphicsRef.current = {
+                currentLocalGraphicsRef.current = {
                     graphics,
                     color,
                     width,
@@ -521,9 +552,11 @@ export default function WhiteboardCanvas() {
 
                 const color = toolRef.current === 'eraser' ? 0xffffff : penColorRef.current;
                 const baseSize = toolRef.current === 'eraser' ? eraserSizeRef.current : penSizeRef.current;
+                // FIX: Revert to Screen-Constant Sizing.
                 const width = baseSize / scaleRef.current;
 
-                drawLine(dest.x, dest.y, prevRenderedPoint.x, prevRenderedPoint.y, color, width);
+                // Use REF (Stable)
+                drawLineRef.current(dest.x, dest.y, prevRenderedPoint.x, prevRenderedPoint.y, color, width);
 
                 const event: DrawEvent = {
                     type: 'draw',
@@ -543,13 +576,13 @@ export default function WhiteboardCanvas() {
             }
 
             // Capture graphics reference BEFORE clearing state
-            const activeGraphics = currentGraphicsRef.current;
+            const activeGraphics = currentLocalGraphicsRef.current;
 
             isDrawing = false;
             setIsDrawing(false);
             prevRawPoint = null;
             prevRenderedPoint = null;
-            currentGraphicsRef.current = null;
+            currentLocalGraphicsRef.current = null;
 
             // FIX: Capture and Clear immediately to prevent Race Conditions without blocking data
             const strokeToProcess = [...currentStroke];
@@ -680,6 +713,13 @@ export default function WhiteboardCanvas() {
                     if (data.success) {
                         setCanUndo(data.canUndo);
                         setCanRedo(data.canRedo);
+
+                        // FIX: Broadcast refetch to notify others to update their Undo/Redo state
+                        if (room && eventsToSend.length > 0) {
+                            const event: RefetchEvent = { type: 'refetch' };
+                            const encoder = new TextEncoder();
+                            room.localParticipant.publishData(encoder.encode(JSON.stringify(event)), { reliable: true });
+                        }
                     }
                 } catch (err) {
                     console.error('Failed to save stroke:', err);
@@ -751,7 +791,9 @@ export default function WhiteboardCanvas() {
                 appRef.current = null;
             }
         };
-    }, [room, broadcastCursor, drawLine]);
+        // CRITICAL FIX: Removed broadcastCursor and drawLine from dependency array
+        // Use refs inside instead. This prevents App Reset on drawing start.
+    }, [room]); // Stable dependency only!
 
     // Batching logic: Flush buffer every 50ms
     const pointBufferRef = useRef<DrawEvent[]>([]);
@@ -792,16 +834,18 @@ export default function WhiteboardCanvas() {
                     drawLine(event.x, event.y, event.prevX, event.prevY, event.color, event.width);
                 } else if (event.type === 'draw_batch') {
                     // Handle batch event
+                    console.log('[WhiteboardCanvas] Recv draw_batch. Points:', event.points.length);
                     const points = event.points as DrawEvent[];
                     points.forEach(p => {
                         drawLine(p.x, p.y, p.prevX, p.prevY, p.color, p.width);
                     });
                 } else if (event.type === 'clear') {
                     drawingContainerRef.current?.removeChildren();
-                    currentGraphicsRef.current = null;
-                    setCanUndo(false);
-                    setCanRedo(false);
-                    // setTriggerLoad(prev => prev + 1); // Removed to prevent race condition showing old data
+                    currentLocalGraphicsRef.current = null;
+                    currentRemoteGraphicsRef.current = null;
+                    // FIX: Don't force disable undo/redo locally. Wait for sync/refetch.
+                    // setCanUndo(false);
+                    // setCanRedo(false);
                 } else if (event.type === 'refetch') {
                     setTriggerLoad(prev => prev + 1);
                 } else if (event.type === 'cursor') {
@@ -840,7 +884,8 @@ export default function WhiteboardCanvas() {
                 if (drawingContainerRef.current) {
                     drawingContainerRef.current.removeChildren();
                 }
-                currentGraphicsRef.current = null;
+                currentLocalGraphicsRef.current = null;
+                currentRemoteGraphicsRef.current = null;
 
                 history.forEach((stroke: DrawEvent[]) => {
                     if (stroke.length === 0) return;
@@ -882,17 +927,26 @@ export default function WhiteboardCanvas() {
     const clearBoard = useCallback(() => {
         if (drawingContainerRef.current) {
             drawingContainerRef.current.removeChildren();
-            currentGraphicsRef.current = null;
+            currentLocalGraphicsRef.current = null;
+            currentRemoteGraphicsRef.current = null;
         }
         if (room) {
             const event: ClearEvent = { type: 'clear' };
             const encoder = new TextEncoder();
             room.localParticipant.publishData(encoder.encode(JSON.stringify(event)), { reliable: true });
+
+            // FIX: Broadcast 'refetch' to sync state for everyone
+            setTimeout(() => {
+                const refetchEvent: RefetchEvent = { type: 'refetch' };
+                room.localParticipant.publishData(encoder.encode(JSON.stringify(refetchEvent)), { reliable: true });
+            }, 100);
         }
         apiClient.handleWhiteboardAction(room.name, { type: 'clear' })
-            .then(() => {
-                setCanUndo(false);
-                setCanRedo(false);
+            .then((data) => {
+                // FIX: Trust server response
+                setCanUndo(data.canUndo);
+                setCanRedo(data.canRedo);
+                setTriggerLoad(prev => prev + 1); // Local sync
             })
             .catch(err => console.error('Failed to clear board:', err));
     }, [room]);
@@ -907,11 +961,11 @@ export default function WhiteboardCanvas() {
             containerRef.current.style.cursor = wandCursor;
         } else if (activeTool === 'eraser') {
             // Scaled size for cursor
-            const cursorCss = generateEraserCursor(eraserSize * scale);
+            const cursorCss = generateEraserCursor(eraserSize);
             containerRef.current.style.cursor = cursorCss;
         } else if (activeTool === 'pen') {
             // Scaled size for cursor
-            const cursorCss = generatePenCursor(penSize * scale, penColor);
+            const cursorCss = generatePenCursor(penSize, penColor);
             containerRef.current.style.cursor = cursorCss;
         } else if (activeTool === 'hand') {
             containerRef.current.style.cursor = isInteracting ? 'grabbing' : 'grab';
@@ -1072,8 +1126,10 @@ export default function WhiteboardCanvas() {
             case 'hand':
                 return 'grab';
             case 'pen':
+                // FIX: Revert to Screen-Constant cursor (always same size on screen)
                 return generatePenCursor(penSize, penColor);
             case 'eraser':
+                // FIX: Revert to Screen-Constant cursor
                 return generateEraserCursor(eraserSize);
             default:
                 return 'default';
@@ -1115,7 +1171,9 @@ export default function WhiteboardCanvas() {
             <div
                 className="absolute inset-0 z-0 pointer-events-none opacity-50"
                 style={{
-                    backgroundImage: `radial-gradient(${GRID_SETTINGS.dotColor} ${GRID_SETTINGS.dotSize}px, transparent ${GRID_SETTINGS.dotSize}px)`,
+                    // FIX: Divide dotSize by scale to keep dots Screen-Constant (fixed pixel size)
+                    // relative to the backgroundSize which scales up.
+                    backgroundImage: `radial-gradient(${GRID_SETTINGS.dotColor} ${GRID_SETTINGS.dotSize / scale}px, transparent ${GRID_SETTINGS.dotSize / scale}px)`,
                     backgroundSize: `${GRID_SETTINGS.baseSize * scale}px ${GRID_SETTINGS.baseSize * scale}px`,
                     backgroundPosition: `${panOffset.x}px ${panOffset.y}px`,
                 }}
