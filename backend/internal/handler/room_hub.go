@@ -330,6 +330,20 @@ func (r *Room) AddOrUpdateSpeaker(speakerID, sourceLang, nickname, profileImg st
 		Nickname:   nickname,
 		ProfileImg: profileImg,
 	}
+
+	// FIX: Auto-update listener's targetLang to match sourceLang for bidirectional translation.
+	// When a Korean speaker (sourceLang=ko) connects, they should receive Korean translations
+	// of what other language speakers say. Without this, Korean speakers with targetLang=en
+	// would never receive Korean translations, breaking bidirectional translation.
+	listenerNeedsUpdate := false
+	var oldTargetLang string
+	if listener, exists := r.Listeners[speakerID]; exists {
+		if listener.TargetLang != sourceLang {
+			oldTargetLang = listener.TargetLang
+			listener.TargetLang = sourceLang
+			listenerNeedsUpdate = true
+		}
+	}
 	r.mu.Unlock()
 
 	// If sourceLang changed, clean up the old Transcribe stream
@@ -338,6 +352,25 @@ func (r *Room) AddOrUpdateSpeaker(speakerID, sourceLang, nickname, profileImg st
 			r.ID, speakerID, oldSourceLang, sourceLang)
 		if r.hub.useAWS && r.awsPipeline != nil {
 			r.awsPipeline.RemoveSpeakerStream(speakerID, oldSourceLang)
+		}
+	}
+
+	// Update target languages in AWS pipeline if listener targetLang was changed
+	if listenerNeedsUpdate {
+		log.Printf("[Room %s] 🔄 Auto-updated listener %s targetLang: %s -> %s (matching sourceLang for bidirectional translation)",
+			r.ID, speakerID, oldTargetLang, sourceLang)
+		if r.hub.useAWS && r.awsPipeline != nil {
+			r.mu.RLock()
+			targetLangs := make([]string, 0)
+			langSet := make(map[string]bool)
+			for _, l := range r.Listeners {
+				if !langSet[l.TargetLang] {
+					langSet[l.TargetLang] = true
+					targetLangs = append(targetLangs, l.TargetLang)
+				}
+			}
+			r.mu.RUnlock()
+			r.awsPipeline.UpdateTargetLanguages(targetLangs)
 		}
 	}
 

@@ -778,6 +778,11 @@ func (h *AudioHandler) HandleRoomWebSocket(c *websocket.Conn) {
 
 	// 연결 종료 시 정리
 	defer func() {
+		// FIX: Also remove speaker when listener disconnects.
+		// This ensures that stale speaker data and Transcribe streams are cleaned up
+		// when users leave without sending an explicit "speaker_leave" message
+		// (e.g., browser close, network disconnect).
+		room.RemoveSpeaker(listenerID)
 		room.RemoveListener(listenerID)
 		log.Printf("🔌 [Room %s] Listener disconnected: %s", roomID, listenerID)
 		c.Close()
