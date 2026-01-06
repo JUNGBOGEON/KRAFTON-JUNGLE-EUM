@@ -905,8 +905,8 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 		return
 	}
 
-	log.Printf("[AWS Pipeline] Processing final transcript from %s: '%s' (lang: %s, confidence: %.2f)",
-		result.SpeakerID, result.Text, sourceLang, result.Confidence)
+	log.Printf("[AWS Pipeline] Processing final transcript from %s: '%s' (lang: %s, confidence: %.2f, targetLangs: %v)",
+		result.SpeakerID, result.Text, sourceLang, result.Confidence, targetLangs)
 
 	// Translate to all target languages (with caching and semaphore)
 	translations := make(map[string]*TranslationResult)
@@ -914,7 +914,19 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 	var translateMu sync.Mutex
 
 	for _, targetLang := range targetLangs {
+		// FIX: Don't skip same language - generate passthrough TTS so listeners always receive audio
+		// This ensures bidirectional communication even when source == target
 		if targetLang == sourceLang {
+			// For same language, use original text as "translation" (passthrough)
+			translateMu.Lock()
+			translations[targetLang] = &TranslationResult{
+				SourceText:     result.Text,
+				TranslatedText: result.Text, // Passthrough: same text
+				SourceLanguage: sourceLang,
+				TargetLanguage: targetLang,
+			}
+			translateMu.Unlock()
+			log.Printf("[AWS Pipeline] Passthrough translation for %s: '%s'", targetLang, result.Text)
 			continue
 		}
 
@@ -991,14 +1003,13 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 	}
 
 	// Generate TTS for each target language (parallel, with caching and semaphore)
-	log.Printf("[AWS Pipeline] 🔊 Generating TTS for %d translations", len(translations))
+	// FIX: Now includes passthrough TTS for same language (source == target)
+	log.Printf("[AWS Pipeline] 🔊 Generating TTS for %d translations (including passthrough)", len(translations))
 
 	var wg sync.WaitGroup
 	for lang, trans := range translations {
-		// Skip TTS for original language
-		if lang == sourceLang {
-			continue
-		}
+		// FIX: Don't skip TTS for original language anymore - passthrough TTS ensures all listeners receive audio
+		// This is needed when source == target (e.g., English speaker, English listeners)
 		if trans == nil || trans.TranslatedText == "" {
 			continue
 		}

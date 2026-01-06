@@ -693,7 +693,23 @@ func (r *Room) startAWSPipeline() error {
 
 	r.mu.Lock()
 	r.awsPipeline = pipeline
+	// After pipeline is set, immediately update target languages with ALL current listeners
+	// This fixes race condition where listeners joined while pipeline was being created
+	currentTargetLangs := make([]string, 0)
+	langSet := make(map[string]bool)
+	for _, l := range r.Listeners {
+		if !langSet[l.TargetLang] {
+			langSet[l.TargetLang] = true
+			currentTargetLangs = append(currentTargetLangs, l.TargetLang)
+		}
+	}
 	r.mu.Unlock()
+
+	// Update with all current listeners' target languages (outside lock to avoid deadlock)
+	if len(currentTargetLangs) > 0 {
+		pipeline.UpdateTargetLanguages(currentTargetLangs)
+		log.Printf("[Room %s] 🔄 Updated target languages after pipeline creation: %v", r.ID, currentTargetLangs)
+	}
 
 	// Start receiving responses from AWS pipeline
 	go r.receiveAWSResponses()
@@ -869,6 +885,8 @@ func (r *Room) handleTranscript(t *ai.TranscriptMessage) {
 }
 
 func (r *Room) handleAudio(audio *ai.AudioMessage) {
+	log.Printf("[Room %s] 🔊 Broadcasting TTS audio: speaker=%s, targetLang=%s, size=%d bytes",
+		r.ID, audio.SpeakerParticipantID, audio.TargetLanguage, len(audio.AudioData))
 	r.Broadcast(&BroadcastMessage{
 		Type:       "audio",
 		SpeakerID:  audio.SpeakerParticipantID,
