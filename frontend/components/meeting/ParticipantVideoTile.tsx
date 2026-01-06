@@ -12,7 +12,7 @@ interface ParticipantVideoTileProps {
   audioTrack?: MediaStreamTrack | null;
   isLocal?: boolean;
   showName?: boolean;
-  aspectRatio?: 'video' | 'square';
+  aspectRatio?: 'video' | 'square' | 'none';
   size?: 'sm' | 'md' | 'lg';
   currentUser?: {
     nickname: string;
@@ -80,7 +80,7 @@ export default function ParticipantVideoTile({
           ? 'border-black/20 ring-1 ring-black/10'
           : 'border-black/[0.06]'
         }
-        ${aspectRatio === 'video' ? 'aspect-video' : 'aspect-square'}
+        ${aspectRatio === 'video' ? 'aspect-video' : aspectRatio === 'square' ? 'aspect-square' : 'h-full'}
         ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-500/50' : ''}
       `}
       onClick={onClick}

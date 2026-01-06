@@ -86,7 +86,7 @@ export default function VideoGrid({ currentUser, onPin }: VideoGridProps) {
                             isLocal={participant.isLocal}
                             currentUser={currentUser}
                             size="lg"
-                            aspectRatio="video"
+                            aspectRatio="none"
                             onClick={() => onPin?.(participant.identity)}
                         />
                     </div>

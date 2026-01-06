@@ -250,11 +250,7 @@ export default function ActiveMeeting({
   }, [localParticipant, isMicEnabled]);
 
   const toggleCamera = useCallback(async () => {
-    const nextState = !isCameraEnabled;
-    await localParticipant?.setCameraEnabled(nextState);
-    if (nextState) {
-      alert("배포 확인용: 현재 코드는 v1.0.3 (LiveKitVideoTrack Fix) 버전입니다! 화면이 켜졌습니다.");
-    }
+    await localParticipant?.setCameraEnabled(!isCameraEnabled);
   }, [localParticipant, isCameraEnabled]);
 
   const toggleScreen = useCallback(async () => {
