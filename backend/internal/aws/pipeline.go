@@ -105,11 +105,21 @@ type Pipeline struct {
 	// Per-pipeline stream processors tracking (prevents collisions between pipelines)
 	streamProcessors sync.Map
 
+	// Speaker metadata storage (speakerID -> SpeakerMeta)
+	speakerMeta   map[string]*SpeakerMeta
+	speakerMetaMu sync.RWMutex
+
 	// Lifecycle
 	closed int32 // atomic flag to prevent double-close panics
 
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// SpeakerMeta stores speaker metadata for transcript messages
+type SpeakerMeta struct {
+	Nickname   string
+	ProfileImg string
 }
 
 // PipelineConfig configuration for pipeline
@@ -165,6 +175,7 @@ func NewPipeline(ctx context.Context, cfg *appconfig.Config, pipelineCfg *Pipeli
 		status:           PipelineStatusHealthy,
 		translateSem:     make(chan struct{}, MaxConcurrentTranslate), // Limit concurrent translations
 		ttsSem:           make(chan struct{}, MaxConcurrentTTS),       // Limit concurrent TTS
+		speakerMeta:      make(map[string]*SpeakerMeta),
 		ctx:              pCtx,
 		cancel:           cancel,
 	}
@@ -211,6 +222,7 @@ func NewPipelineWithClientPool(ctx context.Context, clientPool *AWSClientPool, p
 		status:           PipelineStatusHealthy,
 		translateSem:     make(chan struct{}, MaxConcurrentTranslate),
 		ttsSem:           make(chan struct{}, MaxConcurrentTTS),
+		speakerMeta:      make(map[string]*SpeakerMeta),
 		useStreamManager: pipelineCfg != nil && pipelineCfg.UseStreamManager,
 		useWorkerPools:   pipelineCfg != nil && pipelineCfg.UseWorkerPools,
 		ctx:              pCtx,
@@ -404,13 +416,21 @@ func (p *Pipeline) IsBackpressureActive() bool {
 }
 
 // ProcessAudio handles incoming audio from a speaker
-func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName string, audioData []byte) error {
+func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName, profileImg string, audioData []byte) error {
 	// Check backpressure - if active, skip some audio to prevent overflow
 	if p.IsBackpressureActive() {
 		// During backpressure, drop some audio to let the system catch up
 		// This is better than blocking or crashing
 		return nil
 	}
+
+	// Store speaker metadata for use in transcript messages
+	p.speakerMetaMu.Lock()
+	p.speakerMeta[speakerID] = &SpeakerMeta{
+		Nickname:   speakerName,
+		ProfileImg: profileImg,
+	}
+	p.speakerMetaMu.Unlock()
 
 	stream, err := p.getOrCreateStream(speakerID, sourceLang)
 	if err != nil {
@@ -432,6 +452,13 @@ func (p *Pipeline) ProcessAudio(speakerID, sourceLang, speakerName string, audio
 	}
 
 	return nil
+}
+
+// getSpeakerMeta retrieves speaker metadata by speakerID
+func (p *Pipeline) getSpeakerMeta(speakerID string) *SpeakerMeta {
+	p.speakerMetaMu.RLock()
+	defer p.speakerMetaMu.RUnlock()
+	return p.speakerMeta[speakerID]
 }
 
 // getOrCreateStream gets existing or creates new Transcribe stream for speaker
@@ -666,6 +693,16 @@ func (p *Pipeline) processPartialWithTranslationAndTTS(result *TranscriptResult,
 		return
 	}
 
+	// Get speaker metadata for nickname and profile
+	speakerInfo := &pb.SpeakerInfo{
+		ParticipantId:  result.SpeakerID,
+		SourceLanguage: sourceLang,
+	}
+	if meta := p.getSpeakerMeta(result.SpeakerID); meta != nil {
+		speakerInfo.Nickname = meta.Nickname
+		speakerInfo.ProfileImg = meta.ProfileImg
+	}
+
 	// Build transcript message (with full original text for display)
 	transcriptMsg := &ai.TranscriptMessage{
 		ID:               uuid.New().String(),
@@ -681,10 +718,7 @@ func (p *Pipeline) processPartialWithTranslationAndTTS(result *TranscriptResult,
 				TranslatedText: trans.TranslatedText, // Delta translation
 			},
 		},
-		Speaker: &pb.SpeakerInfo{
-			ParticipantId:  result.SpeakerID,
-			SourceLanguage: sourceLang,
-		},
+		Speaker: speakerInfo,
 	}
 
 	// Send transcript
@@ -766,6 +800,16 @@ func (p *Pipeline) sendPartialTranscript(result *TranscriptResult) {
 		}
 	}
 
+	// Get speaker metadata for nickname and profile
+	speakerInfo := &pb.SpeakerInfo{
+		ParticipantId:  result.SpeakerID,
+		SourceLanguage: result.Language,
+	}
+	if meta := p.getSpeakerMeta(result.SpeakerID); meta != nil {
+		speakerInfo.Nickname = meta.Nickname
+		speakerInfo.ProfileImg = meta.ProfileImg
+	}
+
 	msg := &ai.TranscriptMessage{
 		ID:               uuid.New().String(),
 		OriginalText:     result.Text,
@@ -774,10 +818,7 @@ func (p *Pipeline) sendPartialTranscript(result *TranscriptResult) {
 		IsFinal:          false,
 		TimestampMs:      result.TimestampMs,
 		Confidence:       result.Confidence,
-		Speaker: &pb.SpeakerInfo{
-			ParticipantId:  result.SpeakerID,
-			SourceLanguage: result.Language,
-		},
+		Speaker:          speakerInfo,
 	}
 
 	select {
@@ -972,6 +1013,16 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 	}
 	translateWg.Wait()
 
+	// Get speaker metadata for nickname and profile
+	speakerInfo := &pb.SpeakerInfo{
+		ParticipantId:  result.SpeakerID,
+		SourceLanguage: sourceLang,
+	}
+	if meta := p.getSpeakerMeta(result.SpeakerID); meta != nil {
+		speakerInfo.Nickname = meta.Nickname
+		speakerInfo.ProfileImg = meta.ProfileImg
+	}
+
 	// Build transcript message with translations
 	transcriptMsg := &ai.TranscriptMessage{
 		ID:               uuid.New().String(),
@@ -982,10 +1033,7 @@ func (p *Pipeline) processFinalTranscript(result *TranscriptResult, sourceLang s
 		TimestampMs:      result.TimestampMs,
 		Confidence:       result.Confidence,
 		Translations:     make([]*pb.TranslationEntry, 0),
-		Speaker: &pb.SpeakerInfo{
-			ParticipantId:  result.SpeakerID,
-			SourceLanguage: sourceLang,
-		},
+		Speaker:          speakerInfo,
 	}
 
 	for lang, trans := range translations {
@@ -1187,6 +1235,16 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 	}
 	translateWg.Wait()
 
+	// Get speaker metadata for nickname and profile
+	speakerInfo := &pb.SpeakerInfo{
+		ParticipantId:  result.SpeakerID,
+		SourceLanguage: sourceLang,
+	}
+	if meta := p.getSpeakerMeta(result.SpeakerID); meta != nil {
+		speakerInfo.Nickname = meta.Nickname
+		speakerInfo.ProfileImg = meta.ProfileImg
+	}
+
 	// Build transcript message with translations
 	transcriptMsg := &ai.TranscriptMessage{
 		ID:               uuid.New().String(),
@@ -1197,10 +1255,7 @@ func (p *Pipeline) processFinalTranscriptNoTTS(result *TranscriptResult, sourceL
 		TimestampMs:      result.TimestampMs,
 		Confidence:       result.Confidence,
 		Translations:     make([]*pb.TranslationEntry, 0),
-		Speaker: &pb.SpeakerInfo{
-			ParticipantId:  result.SpeakerID,
-			SourceLanguage: sourceLang,
-		},
+		Speaker:          speakerInfo,
 	}
 
 	for lang, trans := range translations {
