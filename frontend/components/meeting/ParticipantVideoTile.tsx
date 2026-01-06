@@ -91,7 +91,7 @@ export default function ParticipantVideoTile({
           trackRef={{
             participant,
             source: Track.Source.Camera,
-            publication: participant.getTrackPublication(Track.Source.Camera)
+            publication: participant.getTrackPublication(Track.Source.Camera)!
           }}
           className={`w-full h-full object-cover ${isLocal ? 'scale-x-[-1]' : ''}`}
         />
