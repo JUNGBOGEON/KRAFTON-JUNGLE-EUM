@@ -690,6 +690,11 @@ func (ts *TranscribeStream) GetStreamAge() time.Duration {
 	return time.Since(ts.streamStartTime)
 }
 
+// GetSpeakerID returns the speaker ID associated with this stream
+func (ts *TranscribeStream) GetSpeakerID() string {
+	return ts.speakerID
+}
+
 // SetCallbacks sets the callback functions
 func (ts *TranscribeStream) SetCallbacks(onDead, onReconnect func(speakerID, sourceLang string, attempt int)) {
 	ts.onStreamDead = func(speakerID, sourceLang string) {

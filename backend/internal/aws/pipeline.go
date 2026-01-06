@@ -557,13 +557,16 @@ func (p *Pipeline) removeDeadStream(speakerID, sourceLang string) {
 	}
 }
 
-// processTranscriptsOnce is a wrapper that ensures only one goroutine processes a stream per language.
+// processTranscriptsOnce is a wrapper that ensures only one goroutine processes a stream per speaker.
 // Uses per-pipeline tracking to avoid collisions between pipelines.
+// FIX: Changed from sourceLang to speakerID as key to support multiple speakers with same language.
 func (p *Pipeline) processTranscriptsOnce(stream *TranscribeStream, sourceLang string) {
-	// Use sourceLang as key to ensure one processor per language per pipeline
-	key := sourceLang
+	// Use speakerID as key to ensure each speaker's stream gets its own processor
+	// This fixes the bug where two speakers with the same sourceLang would have
+	// the second speaker's transcripts ignored.
+	key := stream.GetSpeakerID()
 	if _, loaded := p.streamProcessors.LoadOrStore(key, true); loaded {
-		// Another goroutine is already processing this stream
+		// Another goroutine is already processing this speaker's stream
 		return
 	}
 	defer p.streamProcessors.Delete(key)
