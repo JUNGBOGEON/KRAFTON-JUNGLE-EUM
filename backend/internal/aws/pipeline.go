@@ -18,6 +18,7 @@ import (
 	"realtime-backend/pb"
 )
 
+// test 주석
 // Pipeline configuration constants
 const (
 	StreamIdleTimeout       = 30 * time.Minute // Close stream after 30 minutes of inactivity
